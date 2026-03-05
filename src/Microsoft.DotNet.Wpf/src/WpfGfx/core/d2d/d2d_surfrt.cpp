@@ -402,8 +402,38 @@ CD2DSurfaceRenderTarget::FlushDrawBatch()
             }
         }
 
-        hr = m_pD2DContext->EndDraw();
-        m_fDrawBatchOpen = false;
+        // DIAGNOSTIC: bracket EndDraw with QPC to measure GPU stall
+        {
+            LARGE_INTEGER qpcBefore, qpcAfter, qpcFreq;
+            QueryPerformanceFrequency(&qpcFreq);
+            QueryPerformanceCounter(&qpcBefore);
+
+            hr = m_pD2DContext->EndDraw();
+            m_fDrawBatchOpen = false;
+
+            QueryPerformanceCounter(&qpcAfter);
+            double msEndDraw = (double)(qpcAfter.QuadPart - qpcBefore.QuadPart) * 1000.0 / (double)qpcFreq.QuadPart;
+
+            static LONG s_flushSeq = 0;
+            LONG seq = InterlockedIncrement(&s_flushSeq);
+
+            // Log every EndDraw (first 500) with elapsed ms
+            if (seq <= 500)
+            {
+                WCHAR ep[MAX_PATH];
+                if (GetTempPathW(MAX_PATH, ep) > 0) {
+                    wcscat_s(ep, MAX_PATH, L"wpf_d2d_enddraw.log");
+                    HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                    if (hf != INVALID_HANDLE_VALUE) {
+                        WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
+                            L"ED#%ld hr=%08lX ms=%.3f layers=%u sz=%ux%u\r\n",
+                            seq, (unsigned long)hr, msEndDraw, m_layerCount, m_uWidth, m_uHeight);
+                        DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
+                        CloseHandle(hf);
+                    }
+                }
+            }
+        }
 
         //
         // Log EndDraw errors — these indicate a D2D context error that
@@ -831,6 +861,171 @@ CD2DSurfaceRenderTarget::GetDeviceTransform() const
 
 //+------------------------------------------------------------------------
 //
+//  Function:  CD2DSurfaceRenderTarget::GetOrCreateCachedBitmap
+//
+//  Synopsis:  Look up or create a cached D2D bitmap for an IWGXBitmapSource.
+//             Uses a direct-mapped cache keyed by source pointer + dimensions.
+//             For static (frozen) WPF bitmaps the pointer is stable across
+//             frames, giving a high hit rate and eliminating per-frame
+//             CopyPixels + CreateBitmap overhead.
+//
+//-------------------------------------------------------------------------
+
+HRESULT
+CD2DSurfaceRenderTarget::GetOrCreateCachedBitmap(
+    __in IWGXBitmapSource *pSource,
+    __deref_out ID2D1Bitmap1 **ppBitmap
+    )
+{
+    HRESULT hr = S_OK;
+
+    Assert(pSource);
+    Assert(ppBitmap);
+    *ppBitmap = nullptr;
+
+    UINT width  = 0;
+    UINT height = 0;
+    D2D_IFC(pSource->GetSize(&width, &height));
+
+    if (width == 0 || height == 0)
+    {
+        hr = E_FAIL;
+        goto Cleanup;
+    }
+
+    //
+    // Cache lookup — direct-mapped by source pointer hash.
+    //
+    {
+        UINT cacheIdx = static_cast<UINT>(
+            (reinterpret_cast<UINT_PTR>(pSource) >> 4) % BITMAP_CACHE_SIZE);
+
+        BitmapCacheEntry &entry = m_bitmapCache[cacheIdx];
+
+        if (entry.pSourceKey == static_cast<const void *>(pSource) &&
+            entry.width  == width &&
+            entry.height == height &&
+            entry.pBitmap)
+        {
+            // Cache hit — return existing D2D bitmap.
+            {
+                static LONG s_hitCount = 0;
+                LONG c = InterlockedIncrement(&s_hitCount);
+                if (c <= 50)
+                {
+                    WCHAR ep[MAX_PATH];
+                    if (GetTempPathW(MAX_PATH, ep) > 0) {
+                        wcscat_s(ep, MAX_PATH, L"wpf_d2d_drawbitmap.log");
+                        HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                        if (hf != INVALID_HANDLE_VALUE) {
+                            WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
+                                L"  BmpCache HIT #%ld: src=%p %ux%u idx=%u\r\n", c, pSource, width, height, cacheIdx);
+                            DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
+                            CloseHandle(hf);
+                        }
+                    }
+                }
+            }
+            entry.pBitmap.Get()->AddRef();
+            *ppBitmap = entry.pBitmap.Get();
+            goto Cleanup;
+        }
+
+        //
+        // Cache miss — create the D2D bitmap via ConvertBitmapSource.
+        //
+        {
+            static LONG s_missCount = 0;
+            LONG c = InterlockedIncrement(&s_missCount);
+
+            // Log to freeze log (uncapped) for cache miss
+            {
+                LARGE_INTEGER missNow; QueryPerformanceCounter(&missNow);
+                WCHAR ep[MAX_PATH];
+                if (GetTempPathW(MAX_PATH, ep) > 0) {
+                    wcscat_s(ep, MAX_PATH, L"wpf_d2d_freeze.log");
+                    HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                    if (hf != INVALID_HANDLE_VALUE) {
+                        MilPixelFormat::Enum pf = MilPixelFormat::Undefined;
+                        pSource->GetPixelFormat(&pf);
+                        WCHAR m[512]; int l = swprintf_s(m, ARRAYSIZE(m),
+                            L"  CACHE_MISS #%ld t=%lld src=%p %ux%u idx=%u fmt=%d\r\n",
+                            c, missNow.QuadPart, pSource, width, height, cacheIdx, (int)pf);
+                        DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
+                        CloseHandle(hf);
+                    }
+                }
+            }
+
+            WCHAR ep2[MAX_PATH];
+            if (GetTempPathW(MAX_PATH, ep2) > 0) {
+                wcscat_s(ep2, MAX_PATH, L"wpf_d2d_drawbitmap.log");
+                HANDLE hf = CreateFileW(ep2, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                if (hf != INVALID_HANDLE_VALUE) {
+                    WCHAR m[512]; int l = swprintf_s(m, ARRAYSIZE(m),
+                        L"  BmpCache MISS #%ld: src=%p %ux%u idx=%u (entry.key=%p entry.w=%u entry.h=%u)\r\n",
+                        c, pSource, width, height, cacheIdx,
+                        entry.pSourceKey, entry.width, entry.height);
+                    DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
+                    CloseHandle(hf);
+                }
+            }
+        }
+
+        // Log PRE_CONVERT to freeze log
+        {
+            LARGE_INTEGER cvtNow; QueryPerformanceCounter(&cvtNow);
+            WCHAR ep[MAX_PATH];
+            if (GetTempPathW(MAX_PATH, ep) > 0) {
+                wcscat_s(ep, MAX_PATH, L"wpf_d2d_freeze.log");
+                HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                if (hf != INVALID_HANDLE_VALUE) {
+                    WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
+                        L"  PRE_CONVERT t=%lld src=%p %ux%u\r\n",
+                        cvtNow.QuadPart, pSource, width, height);
+                    DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
+                    CloseHandle(hf);
+                }
+            }
+        }
+
+        ComPtr<ID2D1Bitmap1> pNewBitmap;
+        D2D_IFC(CD2DBitmapConverter::ConvertBitmapSource(
+            m_pD2DContext.Get(), pSource, &pNewBitmap));
+
+        // Log POST_CONVERT to freeze log
+        {
+            LARGE_INTEGER cvtNow; QueryPerformanceCounter(&cvtNow);
+            WCHAR ep[MAX_PATH];
+            if (GetTempPathW(MAX_PATH, ep) > 0) {
+                wcscat_s(ep, MAX_PATH, L"wpf_d2d_freeze.log");
+                HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                if (hf != INVALID_HANDLE_VALUE) {
+                    WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
+                        L"  POST_CONVERT t=%lld src=%p %ux%u\r\n",
+                        cvtNow.QuadPart, pSource, width, height);
+                    DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
+                    CloseHandle(hf);
+                }
+            }
+        }
+
+        // Store in cache.
+        entry.pSourceKey = static_cast<const void *>(pSource);
+        entry.width      = width;
+        entry.height     = height;
+        entry.pBitmap    = pNewBitmap;
+
+        pNewBitmap.Get()->AddRef();
+        *ppBitmap = pNewBitmap.Get();
+    }
+
+Cleanup:
+    RRETURN(hr);
+}
+
+//+------------------------------------------------------------------------
+//
 //  Function:  CD2DSurfaceRenderTarget::DrawBitmap
 //
 //  Synopsis:  Create an ID2D1Bitmap from the IWGXBitmapSource pixel data
@@ -849,6 +1044,31 @@ CD2DSurfaceRenderTarget::DrawBitmap(
 
     Assert(pContextState);
     Assert(pIBitmap);
+
+    // DIAGNOSTIC: test if DrawBitmap is the freeze source
+    {
+        static LONG s_dbCount = 0;
+        LONG c = InterlockedIncrement(&s_dbCount);
+        // Log ALL DrawBitmap calls (uncapped) - this method shouldn't be called often
+        {
+            UINT w2 = 0, h2 = 0;
+            pIBitmap->GetSize(&w2, &h2);
+            LARGE_INTEGER dbNow;
+            QueryPerformanceCounter(&dbNow);
+            WCHAR ep[MAX_PATH];
+            if (GetTempPathW(MAX_PATH, ep) > 0) {
+                wcscat_s(ep, MAX_PATH, L"wpf_d2d_drawbitmap.log");
+                HANDLE h = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                if (h != INVALID_HANDLE_VALUE) {
+                    WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
+                        L"DrawBitmap #%ld: bmp=%p size=%ux%u fx=%p t=%lld\r\n",
+                        c, pIBitmap, w2, h2, pIEffect, dbNow.QuadPart);
+                    DWORD dw; WriteFile(h, m, l*sizeof(WCHAR), &dw, NULL);
+                    CloseHandle(h);
+                }
+            }
+        }
+    }
 
     if (!IsValid())
     {
@@ -907,108 +1127,20 @@ CD2DSurfaceRenderTarget::DrawBitmap(
     }
 
     //
-    // Slow path: bitmap source is not D2D-backed.  Read pixels via
-    // CopyPixels and upload to a cached GPU bitmap.
+    // Slow path: bitmap source is not D2D-backed.  Use the bitmap source
+    // cache to avoid per-frame CopyPixels + CreateBitmap overhead.
     //
 
+    // DIAGNOSTIC: skip bitmap drawing to test if freeze is here
+    goto Cleanup;
+
     {
+        ComPtr<ID2D1Bitmap1> pDrawBitmap;
+        D2D_IFC(GetOrCreateCachedBitmap(pIBitmap, &pDrawBitmap));
+
         UINT uBmpWidth  = 0;
         UINT uBmpHeight = 0;
-
         D2D_IFC(pIBitmap->GetSize(&uBmpWidth, &uBmpHeight));
-
-        if (uBmpWidth == 0 || uBmpHeight == 0)
-        {
-            goto Cleanup;
-        }
-
-        //
-        // Lock / copy the bitmap bits into a temporary buffer.
-        //
-
-        UINT cbStride = uBmpWidth * 4;   // Assume 32bpp PBGRA for the common path
-        UINT cbBuffer = cbStride * uBmpHeight;
-
-        //
-        // Use the reusable staging buffer instead of per-call heap allocation.
-        //
-
-        BYTE *pPixels = nullptr;
-        D2D_IFC(EnsureStagingBuffer(cbBuffer, &pPixels));
-
-        //
-        // Use CopyPixels to extract the bitmap data.
-        //
-
-        WICRect srcRect = { 0, 0, static_cast<INT>(uBmpWidth), static_cast<INT>(uBmpHeight) };
-        hr = pIBitmap->CopyPixels(&srcRect, cbStride, cbBuffer, pPixels);
-
-        if (FAILED(hr))
-        {
-            goto Cleanup;
-        }
-
-        //
-        // Create or reuse a D2D bitmap.  Creating an ID2D1Bitmap per draw
-        // call is extremely expensive (GPU upload + COM allocation).  We
-        // cache a single bitmap and only recreate when dimensions change.
-        //
-
-        if (!m_pCachedDrawBitmap ||
-            m_cachedBitmapWidth != uBmpWidth ||
-            m_cachedBitmapHeight != uBmpHeight)
-        {
-            m_pCachedDrawBitmap.Reset();
-
-            D2D1_BITMAP_PROPERTIES1 bmpProps = D2D1::BitmapProperties1(
-                D2D1_BITMAP_OPTIONS_NONE,
-                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
-            );
-
-            hr = m_pD2DContext->CreateBitmap(
-                D2D1::SizeU(uBmpWidth, uBmpHeight),
-                pPixels,
-                cbStride,
-                bmpProps,
-                &m_pCachedDrawBitmap
-            );
-
-            if (FAILED(hr))
-            {
-                goto Cleanup;
-            }
-
-            m_cachedBitmapWidth  = uBmpWidth;
-            m_cachedBitmapHeight = uBmpHeight;
-        }
-        else
-        {
-            //
-            // Reuse existing bitmap — just update its pixel contents.
-            //
-
-            D2D1_RECT_U updateRect = D2D1::RectU(0, 0, uBmpWidth, uBmpHeight);
-            hr = m_pCachedDrawBitmap->CopyFromMemory(&updateRect, pPixels, cbStride);
-
-            if (FAILED(hr))
-            {
-                //
-                // CopyFromMemory failed — force recreate next time.
-                //
-                m_pCachedDrawBitmap.Reset();
-                goto Cleanup;
-            }
-        }
-
-        //
-        // Draw the bitmap stretched into the destination rectangle.
-        //
-        // The destination rect is the full bitmap extent transformed by the
-        // world-to-device matrix – callers typically set this up through
-        // CContextState::WorldToDevice.  Here we use a simple identity dest
-        // rect covering the bitmap source size; the context transform on the
-        // device context handles placement.
-        //
 
         D2D1_RECT_F dstRect = D2D1::RectF(
             0.0f,
@@ -1018,10 +1150,6 @@ CD2DSurfaceRenderTarget::DrawBitmap(
         );
 
         D2D_IFC(BeginDrawBatch());
-
-        //
-        // Apply the world-to-device transform from the context state.
-        //
 
         {
             const CMILMatrix &mat = pContextState->WorldToDevice;
@@ -1034,14 +1162,12 @@ CD2DSurfaceRenderTarget::DrawBitmap(
         }
 
         m_pD2DContext->DrawBitmap(
-            m_pCachedDrawBitmap.Get(),
+            pDrawBitmap.Get(),
             dstRect,
-            1.0f,   // opacity
-            D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
-            nullptr // source rect – use entire bitmap
+            1.0f,
+            D2D1_INTERPOLATION_MODE_LINEAR,
+            nullptr
         );
-
-        // Draw batch left open — flushed at Present or next state change.
     }
 
 Cleanup:
@@ -1150,6 +1276,59 @@ CD2DSurfaceRenderTarget::DrawPath(
 
     m_diag.cDrawPath++;
 
+    // HEARTBEAT: log every 500 DrawPath calls + detailed per-call near freeze
+    {
+        static LONG s_dpHeart = 0;
+        LONG hb = InterlockedIncrement(&s_dpHeart);
+
+        // Log every 500 calls as heartbeat
+        if (hb % 500 == 0)
+        {
+            LARGE_INTEGER hbNow;
+            QueryPerformanceCounter(&hbNow);
+            WCHAR ep[MAX_PATH];
+            if (GetTempPathW(MAX_PATH, ep) > 0) {
+                wcscat_s(ep, MAX_PATH, L"wpf_d2d_heartbeat.log");
+                HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                if (hf != INVALID_HANDLE_VALUE) {
+                    WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
+                        L"HB dp=%ld t=%lld this=%p sz=%ux%u ly=%u\r\n",
+                        hb, hbNow.QuadPart, this, m_uWidth, m_uHeight, m_layerCount);
+                    DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
+                    CloseHandle(hf);
+                }
+            }
+        }
+
+        // Per-call detail logging near freeze (dp > 32500)
+        if (hb > 32500)
+        {
+            bool isR = pPath->IsAxisAlignedRectangle() && pPath->GetFigureCount() == 1;
+            int fType = -1;
+            CMILBrush *pPre = pFillBrush ? pFillBrush->GetRealizedBrushNoRef(false) : nullptr;
+            if (pPre) fType = (int)pPre->GetType();
+            int sType = -1;
+            CMILBrush *pSPre = pStrokeBrush ? pStrokeBrush->GetRealizedBrushNoRef(false) : nullptr;
+            if (pSPre) sType = (int)pSPre->GetType();
+
+            LARGE_INTEGER detNow;
+            QueryPerformanceCounter(&detNow);
+            WCHAR ep[MAX_PATH];
+            if (GetTempPathW(MAX_PATH, ep) > 0) {
+                wcscat_s(ep, MAX_PATH, L"wpf_d2d_freeze.log");
+                HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                if (hf != INVALID_HANDLE_VALUE) {
+                    WCHAR m[512]; int l = swprintf_s(m, ARRAYSIZE(m),
+                        L"DP#%ld ENTER t=%lld r=%d fT=%d sT=%d ly=%u sz=%ux%u pen=%d figs=%u\r\n",
+                        hb, detNow.QuadPart, (int)isR, fType, sType, m_layerCount,
+                        m_uWidth, m_uHeight, (pPen ? 1 : 0), pPath->GetFigureCount());
+                    DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
+                    CloseHandle(hf);
+                }
+            }
+        }
+    }
+
     //
     // Apply the world-to-device transform.
     //
@@ -1207,6 +1386,153 @@ CD2DSurfaceRenderTarget::DrawPath(
     }
 
     D2D_IFC(BeginDrawBatch());
+
+    //
+    // ================================================================
+    // Early-out fast path: bitmap-filled axis-aligned rectangle
+    //
+    // For the extremely common case of rendering a WPF Image element
+    // (which comes in as a CParallelogram filled with a BrushBitmap),
+    // use ID2D1DeviceContext::DrawBitmap() directly.  This skips:
+    //   - EnsureBrushRealization (which creates a software intermediate
+    //     RT and can freeze/stall for certain bitmap formats)
+    //   - CreateBitmapBrush per-call COM overhead
+    //   - Geometry creation
+    //
+    // The brush is already realized by FillShapeWithBitmap in
+    // drawingcontext.cpp before DrawPath is called.
+    // ================================================================
+    //
+    if (pPath->IsAxisAlignedRectangle() &&
+        pPath->GetFigureCount() == 1 &&
+        pFillBrush)
+    {
+        CMILBrush *pMILFill = pFillBrush->GetRealizedBrushNoRef(false);
+
+        if (pMILFill && pMILFill->GetType() == BrushBitmap)
+        {
+            CMILBrushBitmap *pBmpBrush =
+                static_cast<CMILBrushBitmap *>(pMILFill);
+
+            IWGXBitmapSource *pTexture = pBmpBrush->GetTextureNoAddRef();
+
+            if (pTexture)
+            {
+                // BREADCRUMB: log each step to find freeze point
+                auto logBreadcrumb = [&](const WCHAR *step, UINT_PTR extra = 0) {
+                    WCHAR ep[MAX_PATH];
+                    if (GetTempPathW(MAX_PATH, ep) > 0) {
+                        wcscat_s(ep, MAX_PATH, L"wpf_d2d_freeze.log");
+                        HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                        if (hf != INVALID_HANDLE_VALUE) {
+                            LARGE_INTEGER bcNow; QueryPerformanceCounter(&bcNow);
+                            UINT w3=0,h3=0; pTexture->GetSize(&w3,&h3);
+                            WCHAR m[512]; int l = swprintf_s(m, ARRAYSIZE(m),
+                                L"  BC t=%lld %s tex=%p %ux%u ex=%llu\r\n",
+                                bcNow.QuadPart, step, pTexture, w3, h3, (unsigned long long)extra);
+                            DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
+                            CloseHandle(hf);
+                        }
+                    }
+                };
+
+                logBreadcrumb(L"GOT_TEXTURE");
+
+                CMILMatrix matBitmapToWorld;
+                matBitmapToWorld.SetToIdentity();
+
+                pBmpBrush->GetBitmapToWorldSpaceTransform(
+                    reinterpret_cast<CMatrix<CoordinateSpace::RealizationSampling,
+                                             CoordinateSpace::BaseSampling>&>(matBitmapToWorld));
+
+                // Only use DrawBitmap for axis-aligned transforms
+                // (scale + translate, no rotation/skew).
+                if (matBitmapToWorld._12 == 0.0f && matBitmapToWorld._21 == 0.0f &&
+                    matBitmapToWorld._11 != 0.0f && matBitmapToWorld._22 != 0.0f)
+                {
+                    logBreadcrumb(L"AXIS_ALIGNED");
+
+                    const IFigureData &figure = pPath->GetFigure(0);
+                    MilRectF rectF;
+                    figure.GetAsWellOrderedRectangle(rectF);
+
+                    D2D1_RECT_F d2dRect = D2D1::RectF(
+                        rectF.left, rectF.top, rectF.right, rectF.bottom);
+
+                    logBreadcrumb(L"PRE_CACHE");
+
+                    ComPtr<ID2D1Bitmap1> pD2DBitmap;
+                    D2D_IFC(GetOrCreateCachedBitmap(pTexture, &pD2DBitmap));
+
+                    logBreadcrumb(L"POST_CACHE");
+
+                    FLOAT opacity = pFillBrush->GetOpacityFromRealizedBrush();
+
+                    float sx = matBitmapToWorld._11;
+                    float sy = matBitmapToWorld._22;
+                    float tx = matBitmapToWorld._41;
+                    float ty = matBitmapToWorld._42;
+
+                    //
+                    // Compute source rect.  The brush transform maps bitmap
+                    // pixel coords to world coords.  Invert to find which
+                    // bitmap region maps into the destination rect.
+                    // D2D DrawBitmap expects source rect in DIPs.
+                    //
+                    D2D1_SIZE_F bmpDipSize = pD2DBitmap->GetSize();
+                    D2D1_SIZE_U bmpPixelSize = pD2DBitmap->GetPixelSize();
+
+                    float dipScaleX = (bmpPixelSize.width  > 0)
+                        ? (bmpDipSize.width  / bmpPixelSize.width)  : 1.0f;
+                    float dipScaleY = (bmpPixelSize.height > 0)
+                        ? (bmpDipSize.height / bmpPixelSize.height) : 1.0f;
+
+                    D2D1_RECT_F srcRect;
+                    srcRect.left   = ((d2dRect.left   - tx) / sx) * dipScaleX;
+                    srcRect.top    = ((d2dRect.top    - ty) / sy) * dipScaleY;
+                    srcRect.right  = ((d2dRect.right  - tx) / sx) * dipScaleX;
+                    srcRect.bottom = ((d2dRect.bottom - ty) / sy) * dipScaleY;
+
+                    logBreadcrumb(L"PRE_DRAWBITMAP");
+
+                    m_pD2DContext->DrawBitmap(
+                        pD2DBitmap.Get(),
+                        &d2dRect,
+                        opacity,
+                        D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC,
+                        &srcRect,
+                        nullptr);
+
+                    logBreadcrumb(L"POST_DRAWBITMAP");
+
+                    //
+                    // Handle stroke if present.
+                    //
+                    if (pStrokeBrush && pPen)
+                    {
+                        D2D_IFC(EnsureBrushRealization(
+                            pStrokeBrush, pBrushContext, pContextState));
+
+                        ComPtr<ID2D1Brush> pD2DStrokeBrush;
+                        D2D_IFC(ConvertBrush(
+                            pStrokeBrush, pContextState, &pD2DStrokeBrush));
+
+                        ComPtr<ID2D1StrokeStyle> pStrokeStyle;
+                        FLOAT strokeWidth = 1.0f;
+                        D2D_IFC(ConvertPenToStrokeStyle(
+                            pPen, &pStrokeStyle, &strokeWidth));
+
+                        m_pD2DContext->DrawRectangle(
+                            d2dRect, pD2DStrokeBrush.Get(),
+                            strokeWidth, pStrokeStyle.Get());
+                    }
+
+                    m_diag.cFastRect++;
+                    goto Cleanup;
+                }
+            }
+        }
+    }
 
     //
     // Ensure brushes are realised before we try to convert them.
@@ -1284,9 +1610,39 @@ CD2DSurfaceRenderTarget::DrawPath(
 
         if (pFillBrush)
         {
+            LARGE_INTEGER qpcA, qpcB, qpcC, qpcFreqDP;
+            QueryPerformanceFrequency(&qpcFreqDP);
+            QueryPerformanceCounter(&qpcA);
+
             ComPtr<ID2D1Brush> pD2DFillBrush;
             D2D_IFC(ConvertBrush(pFillBrush, pContextState, &pD2DFillBrush));
+
+            QueryPerformanceCounter(&qpcB);
+
             m_pD2DContext->FillRectangle(d2dRect, pD2DFillBrush.Get());
+
+            QueryPerformanceCounter(&qpcC);
+
+            double msConvert = (double)(qpcB.QuadPart - qpcA.QuadPart) * 1000.0 / (double)qpcFreqDP.QuadPart;
+            double msFill    = (double)(qpcC.QuadPart - qpcB.QuadPart) * 1000.0 / (double)qpcFreqDP.QuadPart;
+
+            static LONG s_fillSeq = 0;
+            LONG fSeq = InterlockedIncrement(&s_fillSeq);
+            if (fSeq <= 200 || msConvert > 5.0 || msFill > 5.0)
+            {
+                WCHAR ep[MAX_PATH];
+                if (GetTempPathW(MAX_PATH, ep) > 0) {
+                    wcscat_s(ep, MAX_PATH, L"wpf_d2d_fillrect.log");
+                    HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                    if (hf != INVALID_HANDLE_VALUE) {
+                        WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
+                            L"FR#%ld cvt=%.3f fill=%.3f rect=(%.0f,%.0f,%.0f,%.0f) layers=%u\r\n",
+                            fSeq, msConvert, msFill, d2dRect.left, d2dRect.top, d2dRect.right, d2dRect.bottom, m_layerCount);
+                        DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
+                        CloseHandle(hf);
+                    }
+                }
+            }
         }
 
         if (pStrokeBrush && pPen)
@@ -2139,6 +2495,28 @@ CD2DSurfaceRenderTarget::BeginLayer(
 {
     HRESULT hr = S_OK;
 
+    // DIAGNOSTIC: log all BeginLayer calls with timing
+    {
+        static LONG s_blCount = 0;
+        LONG bl = InterlockedIncrement(&s_blCount);
+        LARGE_INTEGER blNow;
+        QueryPerformanceCounter(&blNow);
+        WCHAR ep[MAX_PATH];
+        if (GetTempPathW(MAX_PATH, ep) > 0) {
+            wcscat_s(ep, MAX_PATH, L"wpf_d2d_freeze.log");
+            HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+            if (hf != INVALID_HANDLE_VALUE) {
+                WCHAR m[512]; int l = swprintf_s(m, ARRAYSIZE(m),
+                    L"BL#%ld t=%lld ly=%u sz=%ux%u alpha=%.2f mask=%p amask=%p bounds=[%.0f,%.0f,%.0f,%.0f]\r\n",
+                    bl, blNow.QuadPart, m_layerCount, m_uWidth, m_uHeight, flAlphaScale,
+                    pGeometricMask, pAlphaMask,
+                    LayerBounds.left, LayerBounds.top, LayerBounds.right, LayerBounds.bottom);
+                DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
+                CloseHandle(hf);
+            }
+        }
+    }
+
     if (!IsValid())
     {
         goto Cleanup;
@@ -2356,6 +2734,27 @@ STDMETHODIMP
 CD2DSurfaceRenderTarget::EndLayer()
 {
     HRESULT hr = S_OK;
+
+    // DIAGNOSTIC: log all EndLayer calls
+    {
+        static LONG s_elCount = 0;
+        LONG el = InterlockedIncrement(&s_elCount);
+        LARGE_INTEGER elNow;
+        QueryPerformanceCounter(&elNow);
+        WCHAR ep[MAX_PATH];
+        if (GetTempPathW(MAX_PATH, ep) > 0) {
+            wcscat_s(ep, MAX_PATH, L"wpf_d2d_freeze.log");
+            HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+            if (hf != INVALID_HANDLE_VALUE) {
+                bool isFullLayer = (m_layerCount > 0) ? m_layerTypeStack[m_layerCount - 1] : false;
+                WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
+                    L"EL#%ld t=%lld ly=%u full=%d sz=%ux%u\r\n",
+                    el, elNow.QuadPart, m_layerCount, (int)isFullLayer, m_uWidth, m_uHeight);
+                DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
+                CloseHandle(hf);
+            }
+        }
+    }
 
     if (!IsValid())
     {
@@ -2745,35 +3144,49 @@ CD2DSurfaceRenderTarget::EnsureBrushRealization(
             DBG_STEP_RENDERING_COMMA_PARAM(nullptr)
             );
 
-        IFC(pBrushRealizer->EnsureRealization(
-            CMILResourceCache::SwRealizationCacheIndex,
-            m_associatedDisplay,
-            pBrushContext,
-            pContextState,
-            &swRTCreator
-            ));
-
-        // Log EnsureRealization result
+        // DIAGNOSTIC: log before/after and time EnsureRealization
         {
-            static LONG s_erCount = 0;
-            LONG er = InterlockedIncrement(&s_erCount);
-            if (er <= 10)
+            static LONG s_erDiag = 0;
+            LONG d = InterlockedIncrement(&s_erDiag);
+
+            LARGE_INTEGER t0, t1, freq;
+            QueryPerformanceCounter(&t0);
+            QueryPerformanceFrequency(&freq);
+
+            hr = pBrushRealizer->EnsureRealization(
+                CMILResourceCache::SwRealizationCacheIndex,
+                m_associatedDisplay,
+                pBrushContext,
+                pContextState,
+                &swRTCreator
+                );
+
+            QueryPerformanceCounter(&t1);
+
+            double ms = (double)(t1.QuadPart - t0.QuadPart) * 1000.0 / (double)freq.QuadPart;
+
+            CMILBrush *pPost = pBrushRealizer->GetRealizedBrushNoRef(false);
+            int postType = pPost ? (int)pPost->GetType() : -1;
+
+            // Log: BrushBitmap type (always), slow calls >1ms (always), or first 50
+            if (postType == BrushBitmap || ms > 1.0 || d <= 50)
             {
-                CMILBrush *pBrush = pBrushRealizer->GetRealizedBrushNoRef(false);
-                int bt = pBrush ? (int)pBrush->GetType() : -1;
                 WCHAR ep[MAX_PATH];
                 if (GetTempPathW(MAX_PATH, ep) > 0) {
-                    wcscat_s(ep, MAX_PATH, L"wpf_d2d_err.log");
-                    HANDLE h = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                    if (h != INVALID_HANDLE_VALUE) {
-                        WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
-                            L"EnsureRealize #%ld hr=%08lX brushType=%d pBrushCtx=%p\r\n",
-                            er, (unsigned long)hr, bt, pBrushContext);
-                        DWORD w; WriteFile(h, m, l*sizeof(WCHAR), &w, NULL);
-                        CloseHandle(h);
+                    wcscat_s(ep, MAX_PATH, L"wpf_d2d_realize.log");
+                    HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                    if (hf != INVALID_HANDLE_VALUE) {
+                        WCHAR m[512]; int l = swprintf_s(m, ARRAYSIZE(m),
+                            L"ER#%ld hr=%08lX type=%d ms=%.3f this=%p sz=%ux%u layers=%u\r\n",
+                            d, (unsigned long)hr, postType, ms,
+                            this, m_uWidth, m_uHeight, m_layerCount);
+                        DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
+                        CloseHandle(hf);
                     }
                 }
             }
+
+            IFC(hr);
         }
     }
 
@@ -3089,8 +3502,7 @@ CD2DSurfaceRenderTarget::ConvertBrush(
                 if (pTexture)
                 {
                     ComPtr<ID2D1Bitmap1> pD2DBitmap;
-                    D2D_IFC(CD2DBitmapConverter::ConvertBitmapSource(
-                        m_pD2DContext.Get(), pTexture, &pD2DBitmap));
+                    D2D_IFC(GetOrCreateCachedBitmap(pTexture, &pD2DBitmap));
 
                     //
                     // Map WPF wrap mode to D2D extend mode.

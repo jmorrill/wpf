@@ -111,7 +111,14 @@ D2D1_ALPHA_MODE CD2DBitmapConverter::MilPixelFormatToAlphaMode(MilPixelFormat::E
     case MilPixelFormat::BGRA32bpp:
     case MilPixelFormat::RGBA64bpp:
     case MilPixelFormat::RGBA128bppFloat:
-        return D2D1_ALPHA_MODE_STRAIGHT;
+        //
+        // Straight-alpha formats.  D2D does NOT support
+        // D2D1_ALPHA_MODE_STRAIGHT for CreateBitmap — it returns
+        // D2DERR_UNSUPPORTED_PIXEL_FORMAT.  Return UNKNOWN so that
+        // ConvertBitmapSource falls through to the PBGRA32bpp
+        // conversion path which pre-multiplies the alpha.
+        //
+        return D2D1_ALPHA_MODE_UNKNOWN;
 
     case MilPixelFormat::BGR32bpp:
     case MilPixelFormat::BGR24bpp:
@@ -205,10 +212,12 @@ HRESULT CD2DBitmapConverter::ConvertBitmapSource(
     D2D1_ALPHA_MODE alphaMode = MilPixelFormatToAlphaMode(milFmt);
     MilPixelFormat::Enum readFmt = milFmt;
 
-    if (dxgiFmt == DXGI_FORMAT_UNKNOWN)
+    if (dxgiFmt == DXGI_FORMAT_UNKNOWN || alphaMode == D2D1_ALPHA_MODE_UNKNOWN)
     {
         //
         // Fall back to PBGRA32bpp — the universal WPF format.
+        // This also handles straight-alpha formats (BGRA32bpp, etc.)
+        // which D2D cannot use directly.
         //
         dxgiFmt   = DXGI_FORMAT_B8G8R8A8_UNORM;
         alphaMode = D2D1_ALPHA_MODE_PREMULTIPLIED;
@@ -244,12 +253,47 @@ HRESULT CD2DBitmapConverter::ConvertBitmapSource(
         // Copy pixel data from the WPF source.
         // Passing NULL for prc copies the entire bitmap.
         //
+
+        // BREADCRUMB: PRE_COPYPIXELS
+        {
+            LARGE_INTEGER cpNow; QueryPerformanceCounter(&cpNow);
+            WCHAR ep[MAX_PATH];
+            if (GetTempPathW(MAX_PATH, ep) > 0) {
+                wcscat_s(ep, MAX_PATH, L"wpf_d2d_freeze.log");
+                HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                if (hf != INVALID_HANDLE_VALUE) {
+                    WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
+                        L"    CVT PRE_COPYPIXELS t=%lld %ux%u stride=%u bufSz=%u fmt=%d\r\n",
+                        cpNow.QuadPart, width, height, stride, bufferSize, (int)readFmt);
+                    DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
+                    CloseHandle(hf);
+                }
+            }
+        }
+
         hr = pSource->CopyPixels(
             NULL,       // prc — NULL means full image
             stride,
             bufferSize,
             pPixels
         );
+
+        // BREADCRUMB: POST_COPYPIXELS
+        {
+            LARGE_INTEGER cpNow; QueryPerformanceCounter(&cpNow);
+            WCHAR ep[MAX_PATH];
+            if (GetTempPathW(MAX_PATH, ep) > 0) {
+                wcscat_s(ep, MAX_PATH, L"wpf_d2d_freeze.log");
+                HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                if (hf != INVALID_HANDLE_VALUE) {
+                    WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
+                        L"    CVT POST_COPYPIXELS t=%lld hr=%08lX %ux%u\r\n",
+                        cpNow.QuadPart, (unsigned long)hr, width, height);
+                    DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
+                    CloseHandle(hf);
+                }
+            }
+        }
 
         if (FAILED(hr))
         {
@@ -281,6 +325,23 @@ HRESULT CD2DBitmapConverter::ConvertBitmapSource(
             }
         }
 
+        // BREADCRUMB: PRE_CREATEBITMAP
+        {
+            LARGE_INTEGER cbNow; QueryPerformanceCounter(&cbNow);
+            WCHAR ep[MAX_PATH];
+            if (GetTempPathW(MAX_PATH, ep) > 0) {
+                wcscat_s(ep, MAX_PATH, L"wpf_d2d_freeze.log");
+                HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                if (hf != INVALID_HANDLE_VALUE) {
+                    WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
+                        L"    CVT PRE_CREATEBITMAP t=%lld %ux%u dxgi=%d alpha=%d\r\n",
+                        cbNow.QuadPart, width, height, (int)dxgiFmt, (int)alphaMode);
+                    DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
+                    CloseHandle(hf);
+                }
+            }
+        }
+
         hr = pContext->CreateBitmap(
             D2D1::SizeU(width, height),
             pPixels,
@@ -288,6 +349,23 @@ HRESULT CD2DBitmapConverter::ConvertBitmapSource(
             &bitmapProps,
             ppBitmap
         );
+
+        // BREADCRUMB: POST_CREATEBITMAP
+        {
+            LARGE_INTEGER cbNow; QueryPerformanceCounter(&cbNow);
+            WCHAR ep[MAX_PATH];
+            if (GetTempPathW(MAX_PATH, ep) > 0) {
+                wcscat_s(ep, MAX_PATH, L"wpf_d2d_freeze.log");
+                HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                if (hf != INVALID_HANDLE_VALUE) {
+                    WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
+                        L"    CVT POST_CREATEBITMAP t=%lld hr=%08lX %ux%u\r\n",
+                        cbNow.QuadPart, (unsigned long)hr, width, height);
+                    DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
+                    CloseHandle(hf);
+                }
+            }
+        }
 
         delete[] pPixels;
         IFC(hr);

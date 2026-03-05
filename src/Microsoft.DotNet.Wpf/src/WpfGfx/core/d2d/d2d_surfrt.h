@@ -423,6 +423,28 @@ protected:
     UINT m_cachedBitmapHeight;
 
     // -----------------------------------------------------------------------
+    // Bitmap source cache — avoids per-frame CopyPixels + CreateBitmap for
+    // static bitmaps (WPF Image elements, ImageBrush, etc.).
+    // Direct-mapped by IWGXBitmapSource pointer hash (256 entries).
+    // -----------------------------------------------------------------------
+
+    struct BitmapCacheEntry
+    {
+        const void *pSourceKey = nullptr;   // IWGXBitmapSource pointer
+        UINT        width      = 0;
+        UINT        height     = 0;
+        ComPtr<ID2D1Bitmap1> pBitmap;
+    };
+
+    static const UINT BITMAP_CACHE_SIZE = 256;
+    BitmapCacheEntry m_bitmapCache[BITMAP_CACHE_SIZE];
+
+    HRESULT GetOrCreateCachedBitmap(
+        __in IWGXBitmapSource *pSource,
+        __deref_out ID2D1Bitmap1 **ppBitmap
+    );
+
+    // -----------------------------------------------------------------------
     // Cached stroke style for ConvertPenToStrokeStyle.
     // -----------------------------------------------------------------------
 

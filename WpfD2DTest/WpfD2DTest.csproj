@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <Platform>x64</Platform>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Images\landscape_1920.jpg" />
+    <Resource Include="Images\square_800.jpg" />
+    <Resource Include="Images\portrait_600x900.jpg" />
+    <Resource Include="Images\thumb_200.jpg" />
+    <Resource Include="Images\panoramic_1600x400.jpg" />
+    <Resource Include="Images\photo_1024x768.jpg" />
+    <Resource Include="Images\alpha_circles.png" />
+  </ItemGroup>
+
+</Project>
