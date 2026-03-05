@@ -22,6 +22,11 @@ namespace RenderOptions
     void EnableHardwareAccelerationInRdp(BOOL fEnable);
 
     BOOL IsHardwareAccelerationInRdpEnabled();
+
+#ifdef WPF_D2D_ENABLED
+    void SetD2DRenderingEnabled(bool fEnabled);
+    bool IsD2DRenderingEnabled();
+#endif
 };
 
 

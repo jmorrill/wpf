@@ -5,6 +5,8 @@
 
     <!-- v143 = Visual Studio 2022 -->
     <PlatformToolset>v143</PlatformToolset>
+    <VCToolsVersion>14.44.35207</VCToolsVersion>
+    <VCToolsRedistVersion>14.44.35112</VCToolsRedistVersion>
 
     <!-- 17134 is Windows 10 v1903 (19H1) SDK -->
     <WindowsTargetPlatformVersion>10.0.19041.0</WindowsTargetPlatformVersion>

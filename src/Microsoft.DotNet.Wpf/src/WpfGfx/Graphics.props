@@ -105,6 +105,9 @@
     </Lib>
   </ItemDefinitionGroup>
 
+  <!-- D2D rendering backend -->
+  <Import Project="$(MSBuildThisFileDirectory)core\d2d\d2d.props" Condition="Exists('$(MSBuildThisFileDirectory)core\d2d\d2d.props')" />
+
   <Target Name="CopyGeneratedIncludeFilesToIntermediateFolder" BeforeTargets="Build" Condition="'$(IntermediateOutputPath)'!=''">
     <ItemGroup>
       <ProcessedFiles Include="$(WpfGraphicsIncludeProcessedFilesPath)wgx_av_types.cs" />

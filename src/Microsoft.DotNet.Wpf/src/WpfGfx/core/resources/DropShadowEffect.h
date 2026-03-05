@@ -18,6 +18,11 @@ MtExtern(CMilDropShadowEffectDuce);
 class CMilDropShadowEffectDuce : public CMilEffectDuce
 {
     friend class CResourceFactory;
+    friend double D2DEffect_GetDropShadowBlurRadius(CMilEffectDuce *pEffect);
+    friend double D2DEffect_GetDropShadowDirection(CMilEffectDuce *pEffect);
+    friend double D2DEffect_GetDropShadowDepth(CMilEffectDuce *pEffect);
+    friend double D2DEffect_GetDropShadowOpacity(CMilEffectDuce *pEffect);
+    friend void D2DEffect_GetDropShadowColor(CMilEffectDuce *pEffect, float *r, float *g, float *b, float *a);
 
 protected:
 

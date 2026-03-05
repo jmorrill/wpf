@@ -14,6 +14,15 @@
 
 #include "precomp.hpp"
 
+#ifdef WPF_D2D_ENABLED
+// Forward-declare D2DSubsystem methods so we can call Init/DeInit
+// without pulling in d2d headers from the common project.
+namespace D2DSubsystem {
+    HRESULT Init();
+    void DeInit();
+}
+#endif
+
 using namespace dxlayer;
 
 
@@ -91,6 +100,10 @@ MILCoreDllMain(
             IFC(g_csGraphicsStream.Init());
             IFC(RenderOptions::Init());
 
+#ifdef WPF_D2D_ENABLED
+            IFC(D2DSubsystem::Init());
+#endif
+
             IFC(Startup());
             IFC(SwStartup());
             IFC(HwStartup());
@@ -156,6 +169,9 @@ MILCoreDllMain(
 
         g_csCompositionEngine.DeInit();
         g_csGraphicsStream.DeInit();
+#ifdef WPF_D2D_ENABLED
+        D2DSubsystem::DeInit();
+#endif
         RenderOptions::DeInit();
         break;
     }

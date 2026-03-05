@@ -177,12 +177,14 @@ CSlaveHWndRenderTarget::Render(
                 // Render the composition tree
                 //
 
-                IFC(pDrawingContext->BeginFrame(
+                HRESULT hrBeginFrame = pDrawingContext->BeginFrame(
                     m_pRenderTarget
                     DBG_ANALYSIS_COMMA_PARAM(CoordinateSpaceId::PageInPixels)
-                    ));
+                    );
 
-                IFC(pDrawingContext->Render(
+                IFC(hrBeginFrame);
+
+                HRESULT hrRender = pDrawingContext->Render(
                     m_pRoot,
                     m_pRenderTarget,
                     &m_clearColor,
@@ -192,7 +194,9 @@ CSlaveHWndRenderTarget::Render(
                     rgInvalidTargetRegions,
                     fCanAccelerateScroll,
                     &fNeedsFullPresent
-                    ));
+                    );
+
+                IFC(hrRender);
 
                 pDrawingContext->EndFrame();
 

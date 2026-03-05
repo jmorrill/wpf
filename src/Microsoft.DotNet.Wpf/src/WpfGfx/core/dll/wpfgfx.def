@@ -139,3 +139,6 @@ EXPORTS
     RenderOptions_IsSoftwareRenderingForcedForProcess
     RenderOptions_EnableHardwareAccelerationInRdp
 
+    RenderOptions_SetD2DRenderingEnabled
+    RenderOptions_IsD2DRenderingEnabled
+

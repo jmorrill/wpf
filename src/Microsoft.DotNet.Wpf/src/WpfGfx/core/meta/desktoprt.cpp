@@ -28,6 +28,10 @@
 
 #include "precomp.hpp"
 
+#ifdef WPF_D2D_ENABLED
+#include "d2d/d2d_factory.h"
+#endif
+
 DeclareTag(tagMILRenderClearAfterPresent, "MIL", "Clear after present");
 DeclareTag(tagMILTraceDesktopState, "MIL", "Trace MILRender desktop state");
 DeclareTag(tagUseRgbRasterizer, "MIL-HW", "Use RGB rasterizer")
@@ -278,7 +282,48 @@ HRESULT CDesktopRenderTarget::Init(
     // then while creating the RTs in the loop below, we'll set it to false
     // if we learn that's not the case.
     UINT uCacheIndex = CMILResourceCache::InvalidToken;
-    
+
+#ifdef WPF_D2D_ENABLED
+    //
+    // D2D rendering path — try Direct2D/Direct3D 11 first if enabled
+    //
+    if (D2DRendering_ShouldUse())
+    {
+        CDisplay const *pPrimaryDisplay = DisplaySet()->Display(0);
+        Assert(pPrimaryDisplay);
+        IRenderTargetHWNDInternal *pD2DRTHWND = NULL;
+        IRenderTargetInternal *pD2DRT = NULL;
+
+        MIL_THR(D2DDisplayRenderTarget_Create(
+            m_hwnd,
+            eWindowLayerType,
+            pPrimaryDisplay,
+            dwFlags,
+            &pD2DRTHWND,
+            &pD2DRT
+            ));
+
+        if (SUCCEEDED(hr))
+        {
+            //
+            // D2D path succeeded. Store in first metadata slot and skip D3D9.
+            //
+            m_rgMetaData[0].pInternalRTHWND = pD2DRTHWND;
+            m_rgMetaData[0].pInternalRT = pD2DRT;
+            m_rgMetaData[0].fEnable = true;
+            SetSingleSubRT();
+
+            goto DoneWithAdapters;
+        }
+
+        //
+        // D2D path failed — fall through to existing D3D9/SW path
+        //
+        ReleaseInterface(pD2DRT);
+        hr = S_OK;
+    }
+#endif // WPF_D2D_ENABLED
+
     //
     // Create all of the render targets
     //
@@ -447,6 +492,10 @@ HRESULT CDesktopRenderTarget::Init(
         }
         metadata.pInternalRT->AddRef();
     }
+
+#ifdef WPF_D2D_ENABLED
+DoneWithAdapters:
+#endif // WPF_D2D_ENABLED
 
     IFC(EditMetaData());
 
@@ -664,6 +713,21 @@ STDMETHODIMP CDesktopRenderTarget::Present()
                 hrPresent = THR(m_rgMetaData[i].pInternalRTHWND->Present(
                     &rcSubRTPresent
                     ));
+
+#ifdef WPF_D2D_ENABLED
+                //
+                // D2D FLIP_DISCARD swap chains do not retain back buffer
+                // contents after Present.  Reset the valid-content bounds
+                // so the next frame is fully redrawn.
+                //
+
+                if (SUCCEEDED(hrPresent)
+                    && !m_rgMetaData[i].pHwDisplayRT
+                    && !m_rgMetaData[i].pSwHWNDRT)
+                {
+                    m_rgMetaData[i].rcLocalDeviceValidContentBounds.SetEmpty();
+                }
+#endif
 
                 if (FAILED(hrPresent))
                 {

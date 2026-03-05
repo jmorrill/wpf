@@ -44,6 +44,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>precomp.hpp</PrecompiledHeaderFile>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(MsBuildThisFileDirectory)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WPF_D2D_ENABLED;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>

@@ -256,6 +256,20 @@ CDesktopHWNDRenderTarget::ResizeSubRT(
 
     pDevData->rcLocalDeviceValidContentBounds.SetEmpty();
 
+#ifdef WPF_D2D_ENABLED
+    //
+    // D2D path: pInternalRTHWND is set but pHwDisplayRT and pSwHWNDRT are
+    // both NULL.  Resize through the interface directly and skip HW/SW
+    // fallback logic.
+    //
+    if (!pDevData->pHwDisplayRT && !pDevData->pSwHWNDRT && pDevData->pInternalRTHWND)
+    {
+        hr = THR(pDevData->pInternalRTHWND->Resize(uWidthNew, uHeightNew));
+
+        goto DoneResize;
+    }
+#endif
+
     //
     // If this monitor has a HW RT, then try to resize with
     // it first.
@@ -407,6 +421,10 @@ CDesktopHWNDRenderTarget::ResizeSubRT(
             }
         }
     }
+
+#ifdef WPF_D2D_ENABLED
+DoneResize:
+#endif
 
     if (SUCCEEDED(hr))
     {

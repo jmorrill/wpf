@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  
+  <!-- D2D/D3D11 rendering backend build properties -->
+  <!-- Source files are in d2d.vcxproj; this props file only adds preprocessor defs, -->
+  <!-- include paths, and link libraries for projects that need D2D awareness. -->
+  
+  <PropertyGroup>
+    <IncludeD2DBackend Condition="'$(IncludeD2DBackend)' == ''">true</IncludeD2DBackend>
+  </PropertyGroup>
+  
+  <ItemDefinitionGroup Condition="'$(IncludeD2DBackend)' == 'true'">
+    <ClCompile>
+      <PreprocessorDefinitions>WPF_D2D_ENABLED;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link Condition="'$(ConfigurationType)'!='StaticLibrary'">
+      <AdditionalDependencies>d3d11.lib;d2d1.lib;dxgi.lib;dwrite.lib;dxguid.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  
+</Project>

@@ -57,7 +57,7 @@
     <ClCompile>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(WpfSharedDir)\inc;.\CPP;.\CPP\inc;.\CPP\inc\GDIExporter</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>$(CDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <CompileAsManaged>pure</CompileAsManaged>
+      <CompileAsManaged>NetCore</CompileAsManaged>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>Win32Inc.hpp</PrecompiledHeaderFile>
       <ForceConformanceInForLoopScope>false</ForceConformanceInForLoopScope>

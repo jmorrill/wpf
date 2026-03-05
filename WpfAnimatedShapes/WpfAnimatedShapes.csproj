@@ -1,0 +1,60 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net11.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <NoWarn>$(NoWarn);CA5394</NoWarn>
+  </PropertyGroup>
+
+  <!--
+    After build, copy the locally-built WPF assemblies over the shared-framework
+    versions so the app actually runs on our from-source binaries.
+  -->
+  <PropertyGroup>
+    <WpfArtifacts>$(MSBuildThisFileDirectory)..\artifacts\bin</WpfArtifacts>
+  </PropertyGroup>
+
+  <Target Name="CopyLocalWpfBinaries" AfterTargets="Build">
+    <ItemGroup>
+      <!-- Managed WPF assemblies -->
+      <_WpfManagedDlls Include="$(WpfArtifacts)\PresentationCore\x86\Release\net11.0\PresentationCore.dll" />
+      <_WpfManagedDlls Include="$(WpfArtifacts)\PresentationFramework\x86\Release\net11.0\PresentationFramework.dll" />
+      <_WpfManagedDlls Include="$(WpfArtifacts)\WindowsBase\x86\Release\net11.0\WindowsBase.dll" />
+      <_WpfManagedDlls Include="$(WpfArtifacts)\System.Xaml\x86\Release\net11.0\System.Xaml.dll" />
+      <_WpfManagedDlls Include="$(WpfArtifacts)\PresentationUI\x86\Release\net11.0\PresentationUI.dll" />
+      <_WpfManagedDlls Include="$(WpfArtifacts)\ReachFramework\x86\Release\net11.0\ReachFramework.dll" />
+      <_WpfManagedDlls Include="$(WpfArtifacts)\System.Printing\Release\net11.0\System.Printing.dll" />
+      <_WpfManagedDlls Include="$(WpfArtifacts)\System.Windows.Presentation\x86\Release\net11.0\System.Windows.Presentation.dll" />
+      <_WpfManagedDlls Include="$(WpfArtifacts)\System.Windows.Input.Manipulations\x86\Release\net11.0\System.Windows.Input.Manipulations.dll" />
+      <_WpfManagedDlls Include="$(WpfArtifacts)\System.Windows.Controls.Ribbon\x86\Release\net11.0\System.Windows.Controls.Ribbon.dll" />
+      <_WpfManagedDlls Include="$(WpfArtifacts)\System.Windows.Primitives\x86\Release\net11.0\System.Windows.Primitives.dll" />
+      <_WpfManagedDlls Include="$(WpfArtifacts)\UIAutomationClient\x86\Release\net11.0\UIAutomationClient.dll" />
+      <_WpfManagedDlls Include="$(WpfArtifacts)\UIAutomationClientSideProviders\x86\Release\net11.0\UIAutomationClientSideProviders.dll" />
+      <_WpfManagedDlls Include="$(WpfArtifacts)\UIAutomationProvider\x86\Release\net11.0\UIAutomationProvider.dll" />
+      <_WpfManagedDlls Include="$(WpfArtifacts)\UIAutomationTypes\x86\Release\net11.0\UIAutomationTypes.dll" />
+      <_WpfManagedDlls Include="$(WpfArtifacts)\WindowsFormsIntegration\x86\Release\net11.0\WindowsFormsIntegration.dll" />
+      <_WpfManagedDlls Include="$(WpfArtifacts)\DirectWriteForwarder\Release\net11.0\DirectWriteForwarder.dll" />
+      <!-- Theme assemblies -->
+      <_WpfManagedDlls Include="$(WpfArtifacts)\PresentationFramework.Aero\x86\Release\net11.0\PresentationFramework.Aero.dll" />
+      <_WpfManagedDlls Include="$(WpfArtifacts)\PresentationFramework.Aero2\x86\Release\net11.0\PresentationFramework.Aero2.dll" />
+      <_WpfManagedDlls Include="$(WpfArtifacts)\PresentationFramework.AeroLite\x86\Release\net11.0\PresentationFramework.AeroLite.dll" />
+      <_WpfManagedDlls Include="$(WpfArtifacts)\PresentationFramework.Classic\x86\Release\net11.0\PresentationFramework.Classic.dll" />
+      <_WpfManagedDlls Include="$(WpfArtifacts)\PresentationFramework.Luna\x86\Release\net11.0\PresentationFramework.Luna.dll" />
+      <_WpfManagedDlls Include="$(WpfArtifacts)\PresentationFramework.Royale\x86\Release\net11.0\PresentationFramework.Royale.dll" />
+      <_WpfManagedDlls Include="$(WpfArtifacts)\PresentationFramework.Fluent\x86\Release\net11.0\PresentationFramework.Fluent.dll" Condition="Exists('$(WpfArtifacts)\PresentationFramework.Fluent\x86\Release\net11.0\PresentationFramework.Fluent.dll')" />
+      <!-- Native DLLs -->
+      <_WpfNativeDlls Include="$(WpfArtifacts)\wpfgfx\Win32\Release\wpfgfx_cor3.dll" />
+      <_WpfNativeDlls Include="$(WpfArtifacts)\PenImc\Win32\Release\PenImc_cor3.dll" />
+      <_WpfNativeDlls Include="$(WpfArtifacts)\PresentationNative\Win32\Release\PresentationNative_cor3.dll" />
+      <_WpfNativeDlls Include="$(WpfArtifacts)\VCRuntime\Win32\Release\vcruntime140_cor3.dll" />
+      <_WpfNativeDlls Include="$(WpfArtifacts)\D3DCompiler\Win32\Release\D3DCompiler_47_cor3.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_WpfManagedDlls)" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_WpfNativeDlls)" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="Copied locally-built WPF assemblies to $(OutputPath)" />
+  </Target>
+
+</Project>

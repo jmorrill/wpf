@@ -1947,6 +1947,66 @@ Cleanup:
 
 //+-----------------------------------------------------------------------------
 //
+//  Function:   BuildDWriteGlyphRunFromResource
+//
+//  Synopsis:   Build a DWRITE_GLYPH_RUN from CGlyphRunResource.  The returned
+//              IDWriteFontFace is AddRef'd and must be Released by the caller.
+//              Declared in GlyphRunCore.h for use from the D2D backend.
+//
+//------------------------------------------------------------------------------
+
+HRESULT
+BuildDWriteGlyphRunFromResource(
+    __in CGlyphRunResource *pGlyphRun,
+    __out DWRITE_GLYPH_RUN *pOut,
+    __deref_out IDWriteFontFace **ppFontFace
+    )
+{
+    HRESULT hr = S_OK;
+
+    Assert(pGlyphRun);
+    Assert(pOut);
+    Assert(ppFontFace);
+
+    *ppFontFace = nullptr;
+    ZeroMemory(pOut, sizeof(*pOut));
+
+    if (pGlyphRun->GetGlyphCount() == 0)
+    {
+        goto Cleanup;
+    }
+
+    IFC(pGlyphRun->CreateFontFace(ppFontFace));
+
+    pOut->fontFace      = *ppFontFace;
+    pOut->fontEmSize    = pGlyphRun->GetEmSize();
+    pOut->glyphCount    = pGlyphRun->GetGlyphCount();
+    pOut->glyphIndices  = pGlyphRun->GetGlyphIndices();
+    pOut->glyphAdvances = pGlyphRun->GetGlyphAdvances();
+    pOut->glyphOffsets  = pGlyphRun->GetGlyphOffsetsAsDWrite();
+    pOut->bidiLevel     = pGlyphRun->GetBidiLevel();
+    pOut->isSideways    = pGlyphRun->IsSideways();
+
+Cleanup:
+    RRETURN(hr);
+}
+
+MilPoint2F
+GetGlyphRunOrigin(__in CGlyphRunResource *pGlyphRun)
+{
+    Assert(pGlyphRun);
+    return pGlyphRun->GetOrigin();
+}
+
+bool
+IsGlyphRunDisplayMeasured(__in CGlyphRunResource *pGlyphRun)
+{
+    Assert(pGlyphRun);
+    return pGlyphRun->IsDisplayMeasured();
+}
+
+//+-----------------------------------------------------------------------------
+//
 //  Member:
 //      CDWriteFontFaceCache::GetFontFace
 //

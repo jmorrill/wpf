@@ -48,6 +48,7 @@ typedef void (__stdcall *GenerateColorsBlur)(
 class CMilBlurEffectDuce : public CMilEffectDuce
 {
     friend class CResourceFactory;
+    friend double D2DEffect_GetBlurRadius(CMilEffectDuce *pEffect);
 
 public:
     __override virtual bool IsOfType(MIL_RESOURCE_TYPE type) const

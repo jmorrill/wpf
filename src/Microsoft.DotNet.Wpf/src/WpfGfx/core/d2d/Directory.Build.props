@@ -1,0 +1,20 @@
+<Project>
+  <!--
+    The d2d.vcxproj is a new C++ static library project added to the WPF
+    native build.  When built via ProjectReference from wpfgfx.vcxproj the
+    Arcade SDK may propagate global properties (like TargetFramework) that
+    confuse the C++ build system and cause it to fall back to Debug|Win32.
+
+    This file strips the managed-only properties and then chains to the
+    standard Directory.Build.props so the rest of the WPF build infra
+    (Graphics.props, Wpf.Cpp.props, etc.) still applies.
+  -->
+  <PropertyGroup>
+    <!-- Strip managed-framework properties that break C++ projects -->
+    <TargetFramework />
+    <TargetFrameworks />
+    <RuntimeIdentifier />
+    <RuntimeIdentifiers />
+  </PropertyGroup>
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+</Project>

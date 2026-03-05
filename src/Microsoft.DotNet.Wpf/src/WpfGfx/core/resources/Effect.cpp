@@ -346,3 +346,86 @@ Cleanup:
 }
 
 
+//+------------------------------------------------------------------------
+//
+//  D2D Effect bridge function implementations.
+//
+//  These free functions are declared in d2d/d2d_effects.h and provide
+//  access to WPF effect properties without coupling D2D compilation
+//  units to the full resource header chain.  This file compiles under
+//  the resources precomp which includes BlurEffect.h, DropShadowEffect.h
+//  and ShaderEffect.h.
+//
+//------------------------------------------------------------------------
+
+int D2DEffect_GetEffectType(__in CMilEffectDuce *pEffect)
+{
+    if (!pEffect)
+    {
+        return 0;
+    }
+
+    if (pEffect->IsOfType(TYPE_BLUREFFECT))
+    {
+        return 1;
+    }
+
+    if (pEffect->IsOfType(TYPE_DROPSHADOWEFFECT))
+    {
+        return 2;
+    }
+
+    if (pEffect->IsOfType(TYPE_SHADEREFFECT))
+    {
+        return 3;
+    }
+
+    return 0;
+}
+
+double D2DEffect_GetBlurRadius(__in CMilEffectDuce *pEffect)
+{
+    CMilBlurEffectDuce *pBlur = static_cast<CMilBlurEffectDuce *>(pEffect);
+    return pBlur->GetRadius();
+}
+
+double D2DEffect_GetDropShadowBlurRadius(__in CMilEffectDuce *pEffect)
+{
+    CMilDropShadowEffectDuce *pShadow = static_cast<CMilDropShadowEffectDuce *>(pEffect);
+    return pShadow->GetBlurRadius();
+}
+
+double D2DEffect_GetDropShadowDirection(__in CMilEffectDuce *pEffect)
+{
+    CMilDropShadowEffectDuce *pShadow = static_cast<CMilDropShadowEffectDuce *>(pEffect);
+    return pShadow->GetDirection();
+}
+
+double D2DEffect_GetDropShadowDepth(__in CMilEffectDuce *pEffect)
+{
+    CMilDropShadowEffectDuce *pShadow = static_cast<CMilDropShadowEffectDuce *>(pEffect);
+    return pShadow->GetShadowDepth();
+}
+
+double D2DEffect_GetDropShadowOpacity(__in CMilEffectDuce *pEffect)
+{
+    CMilDropShadowEffectDuce *pShadow = static_cast<CMilDropShadowEffectDuce *>(pEffect);
+    return pShadow->GetOpacity();
+}
+
+void D2DEffect_GetDropShadowColor(
+    __in CMilEffectDuce *pEffect,
+    __out float *r,
+    __out float *g,
+    __out float *b,
+    __out float *a
+)
+{
+    CMilDropShadowEffectDuce *pShadow = static_cast<CMilDropShadowEffectDuce *>(pEffect);
+    MilColorF color = pShadow->GetColor();
+    *r = color.r;
+    *g = color.g;
+    *b = color.b;
+    *a = color.a;
+}
+

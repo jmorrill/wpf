@@ -90,6 +90,21 @@ public:
     /// Returns true if the glyph run is right-to-left.
     bool IsRightToLeft() const {return m_bidiLevel % 2 != 0;}
 
+    // Additional accessors for D2D glyph rendering
+    const float * GetGlyphAdvances() const { return m_pGlyphAdvances; }
+    const DWRITE_GLYPH_OFFSET * GetGlyphOffsetsAsDWrite() const
+    {
+        return reinterpret_cast<const DWRITE_GLYPH_OFFSET *>(m_pGlyphOffsets);
+    }
+    UINT16 GetBidiLevel() const { return m_bidiLevel; }
+    float GetEmSize() const { return m_muSize; }
+    DWRITE_MEASURING_MODE GetMeasuringMode() const { return m_measuringMethod; }
+    HRESULT CreateFontFace(__deref_out IDWriteFontFace **ppFontFace) const
+    {
+        if (!m_pIDWriteFont) return E_FAIL;
+        return m_pIDWriteFont->CreateFontFace(ppFontFace);
+    }
+
     bool IsDisplayMeasured()
     {
         return (m_measuringMethod == DWRITE_MEASURING_MODE_GDI_CLASSIC) ||
@@ -138,5 +153,25 @@ public:
     CRectF<CoordinateSpace::LocalRendering> m_boundingRect;  // Precomputed from managed side
 };
 
+//+------------------------------------------------------------------------
+//
+//  Free helper functions for building DWRITE_GLYPH_RUN from a
+//  CGlyphRunResource pointer.  These are declared here (where only a
+//  forward declaration of CGlyphRunResource is available) and implemented
+//  in glyphrunslave.cpp where the full class definition exists.  This
+//  avoids pulling heavy dependencies into the D2D precompiled header.
+//
+//-------------------------------------------------------------------------
 
+class CGlyphRunResource;
+
+HRESULT BuildDWriteGlyphRunFromResource(
+    __in CGlyphRunResource *pGlyphRun,
+    __out DWRITE_GLYPH_RUN *pOut,
+    __deref_out IDWriteFontFace **ppFontFace
+    );
+
+MilPoint2F GetGlyphRunOrigin(__in CGlyphRunResource *pGlyphRun);
+
+bool IsGlyphRunDisplayMeasured(__in CGlyphRunResource *pGlyphRun);
 
