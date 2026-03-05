@@ -1666,7 +1666,15 @@ CD2DSurfaceRenderTarget::ComposeEffect(
         }
 
         //
-        // Try fast path: D2D-backed bitmap (zero-copy).
+        // Try fast path: D2D-backed bitmap.
+        //
+        // The source bitmap may have been created on a different
+        // ID2D1DeviceContext (the texture RT's context).  D2D effects
+        // can exhibit flickering when fed cross-context bitmaps
+        // because the GPU may not have finished writing the source.
+        // To avoid this, we copy the bitmap into a new bitmap owned
+        // by our display context — a cheap GPU-to-GPU blit that
+        // guarantees synchronization.
         //
 
         {
@@ -1675,7 +1683,42 @@ CD2DSurfaceRenderTarget::ComposeEffect(
                     IID_ID2DBitmapSourceInternal,
                     reinterpret_cast<void **>(pD2DInternal.GetAddressOf()))))
             {
-                pD2DInternal->GetD2DBitmap(&pSourceBitmap);
+                ComPtr<ID2D1Bitmap1> pCrossCtxBitmap;
+                pD2DInternal->GetD2DBitmap(&pCrossCtxBitmap);
+
+                if (pCrossCtxBitmap)
+                {
+                    D2D1_SIZE_U sz = pCrossCtxBitmap->GetPixelSize();
+
+                    D2D1_BITMAP_PROPERTIES1 bmpProps = D2D1::BitmapProperties1(
+                        D2D1_BITMAP_OPTIONS_NONE,
+                        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,
+                                          D2D1_ALPHA_MODE_PREMULTIPLIED)
+                    );
+
+                    ComPtr<ID2D1Bitmap1> pLocalBitmap;
+                    hr = m_pD2DContext->CreateBitmap(sz, nullptr, 0,
+                                                     bmpProps, &pLocalBitmap);
+                    if (SUCCEEDED(hr))
+                    {
+                        D2D1_POINT_2U destPt = D2D1::Point2U(0, 0);
+                        D2D1_RECT_U   srcRect = D2D1::RectU(0, 0, sz.width, sz.height);
+                        hr = pLocalBitmap->CopyFromBitmap(&destPt,
+                                                           pCrossCtxBitmap.Get(),
+                                                           &srcRect);
+                        if (SUCCEEDED(hr))
+                        {
+                            pSourceBitmap = pLocalBitmap;
+                        }
+                    }
+
+                    if (FAILED(hr))
+                    {
+                        // Fallback: use the cross-context bitmap directly.
+                        pSourceBitmap = pCrossCtxBitmap;
+                        hr = S_OK;
+                    }
+                }
             }
         }
 

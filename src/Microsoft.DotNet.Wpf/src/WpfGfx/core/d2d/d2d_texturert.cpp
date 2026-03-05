@@ -371,12 +371,15 @@ CD2DTextureRenderTarget::Init(UINT width, UINT height)
         ));
 
         //
-        // Match the display render target settings: pixel mode, aliased AA.
+        // Match the display render target settings: pixel mode, per-primitive AA.
+        // Use PER_PRIMITIVE (not ALIASED) so intermediate content is properly
+        // anti-aliased before effects are applied.
         //
 
         m_pD2DContext->SetUnitMode(D2D1_UNIT_MODE_PIXELS);
-        m_pD2DContext->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
+        m_pD2DContext->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
         m_pD2DContext->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+        m_pD2DContext->SetDpi(96.0f, 96.0f);
 
         //
         // Cache the factory.
