@@ -141,6 +141,7 @@ class CMilSlaveBitmap;
 #include "PixelShader.h"
 #include "ImplicitInputBrush.h"
 #include "BlurEffect.h"
+#include "D2DEffect.h"
 #include "DropShadowEffect.h"
 
 #include "d3dimage.h"

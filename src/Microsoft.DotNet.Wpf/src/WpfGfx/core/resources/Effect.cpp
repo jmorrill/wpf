@@ -380,6 +380,11 @@ int D2DEffect_GetEffectType(__in CMilEffectDuce *pEffect)
         return 3;
     }
 
+    if (pEffect->IsOfType(TYPE_D2DEFFECT))
+    {
+        return 4;
+    }
+
     return 0;
 }
 
@@ -427,5 +432,110 @@ void D2DEffect_GetDropShadowColor(
     *g = color.g;
     *b = color.b;
     *a = color.a;
+}
+
+//+------------------------------------------------------------------------
+//
+//  D2DEffect bridge functions
+//
+//  Synopsis: Provide access to CMilD2DEffectDuce data from the D2D
+//            pipeline without requiring the full resource headers.
+//
+//------------------------------------------------------------------------
+
+bool D2DEffect_IsD2DEffect(__in CMilEffectDuce *pEffect)
+{
+    return pEffect && pEffect->IsOfType(TYPE_D2DEFFECT);
+}
+
+HRESULT D2DEffect_GetClsid(__in CMilEffectDuce *pEffect, __out GUID *pClsid)
+{
+    CMilD2DEffectDuce *pD2D = static_cast<CMilD2DEffectDuce *>(pEffect);
+    *pClsid = pD2D->GetClsid();
+    return S_OK;
+}
+
+UINT32 D2DEffect_GetPropertyCount(__in CMilEffectDuce *pEffect)
+{
+    CMilD2DEffectDuce *pD2D = static_cast<CMilD2DEffectDuce *>(pEffect);
+    return pD2D->GetPropertyCount();
+}
+
+HRESULT D2DEffect_GetProperty(
+    __in CMilEffectDuce *pEffect,
+    UINT32 index,
+    __out UINT32 *pType,
+    __out const BYTE **ppData,
+    __out UINT32 *pSize
+)
+{
+    CMilD2DEffectDuce *pD2D = static_cast<CMilD2DEffectDuce *>(pEffect);
+
+    if (index >= pD2D->GetPropertyCount())
+    {
+        return E_INVALIDARG;
+    }
+
+    const D2DEffectPropertyEntry *pProps = pD2D->GetProperties();
+
+    //
+    // Return the D2D property INDEX in *pType. The consumer uses
+    // ID2D1Effect::SetValue(index, rawBytes, size) which doesn't
+    // require the property type enum — it just needs the index and
+    // raw data.  The property's D2D index is stored in Entry.Index.
+    //
+
+    *pType = pProps[index].Index;
+    *ppData = pProps[index].pData;
+    *pSize = pProps[index].DataSize;
+
+    return S_OK;
+}
+
+UINT32 D2DEffect_GetInputCount(__in CMilEffectDuce *pEffect)
+{
+    CMilD2DEffectDuce *pD2D = static_cast<CMilD2DEffectDuce *>(pEffect);
+    return pD2D->GetInputCount();
+}
+
+HRESULT D2DEffect_GetInput(
+    __in CMilEffectDuce *pEffect,
+    UINT32 index,
+    __out UINT32 *pKind,
+    __out HMIL_RESOURCE *phResource
+)
+{
+    CMilD2DEffectDuce *pD2D = static_cast<CMilD2DEffectDuce *>(pEffect);
+
+    if (index >= pD2D->GetInputCount())
+    {
+        return E_INVALIDARG;
+    }
+
+    const D2DEffectInputEntry *pInputs = pD2D->GetInputs();
+    *pKind = pInputs[index].InputKind;
+    *phResource = pInputs[index].hResource;
+
+    return S_OK;
+}
+
+CMilSlaveHandleTable* D2DEffect_GetHandleTable(__in CMilEffectDuce *pEffect)
+{
+    CMilD2DEffectDuce *pD2D = static_cast<CMilD2DEffectDuce *>(pEffect);
+    return pD2D->m_pHandleTable;
+}
+
+CMilEffectDuce* D2DEffect_ResolveInputEffect(__in CMilEffectDuce *pEffect, HMIL_RESOURCE hResource)
+{
+    CMilD2DEffectDuce *pD2D = static_cast<CMilD2DEffectDuce *>(pEffect);
+    CMilSlaveHandleTable *pHT = pD2D->m_pHandleTable;
+    if (pHT == nullptr)
+        return nullptr;
+
+    CMilSlaveResource *pRes = pHT->GetResource(hResource, TYPE_D2DEFFECT);
+    if (pRes == nullptr)
+        return nullptr;
+
+    return static_cast<CMilEffectDuce*>(pRes);
 }
 

@@ -1036,6 +1036,17 @@
     <Compile Include="System\Windows\Media\Effects\BitmapEffectState.cs" />
     <Compile Include="System\Windows\Media\Effects\BlurBitmapEffect.cs" />
     <Compile Include="System\Windows\Media\Effects\BlurEffect.cs" />
+    <Compile Include="System\Windows\Media\Effects\D2DArithmeticCompositeEffect.cs" />
+    <Compile Include="System\Windows\Media\Effects\D2DBlendEffect.cs" />
+    <Compile Include="System\Windows\Media\Effects\D2DColorMatrixEffect.cs" />
+    <Compile Include="System\Windows\Media\Effects\D2DCompositeEffect.cs" />
+    <Compile Include="System\Windows\Media\Effects\D2DCrossFadeEffect.cs" />
+    <Compile Include="System\Windows\Media\Effects\D2DEffect.cs" />
+    <Compile Include="System\Windows\Media\Effects\D2DEffects.cs" />
+    <Compile Include="System\Windows\Media\Effects\D2DGaussianBlurEffect.cs" />
+    <Compile Include="System\Windows\Media\Effects\D2DHueRotationEffect.cs" />
+    <Compile Include="System\Windows\Media\Effects\D2DSaturationEffect.cs" />
+    <Compile Include="System\Windows\Media\Effects\D2DShadowEffect.cs" />
     <Compile Include="System\Windows\Media\Effects\DropShadowBitmapEffect.cs" />
     <Compile Include="System\Windows\Media\Effects\DropShadowEffect.cs" />
     <Compile Include="System\Windows\Media\Effects\Effect.cs" />

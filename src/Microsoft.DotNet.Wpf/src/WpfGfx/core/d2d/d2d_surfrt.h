@@ -211,6 +211,13 @@ public:
         __in_opt IMILRenderTargetBitmap *pImplicitInput
         ) override;
 
+    HRESULT BuildD2DEffectGraph(
+        __in CMilEffectDuce *pEffectResource,
+        __in ID2D1Bitmap1 *pSourceBitmap,
+        UINT depth,
+        __deref_out ID2D1Effect **ppResult
+        );
+
     STDMETHOD(DrawGlyphs)(
         __inout_ecount(1) DrawGlyphsParameters &pars
         ) override;
@@ -544,6 +551,19 @@ protected:
         UINT cPresent;
         UINT cTotalFrames;
         UINT cEllipseCacheHit;
+        UINT cComposeEffect;
+        UINT cComposeD2DEffect;
+        UINT cComposeD2DDrawImage;
+        UINT cComposeFastPath;
+        UINT cComposeSlowPath;
+        UINT cComposeNoSource;
+        UINT cPropSetFail;
+        UINT cPropSetOk;
+        float lastSigma;
+        UINT cEffectType0;
+        UINT cEffectType1;
+        UINT cEffectType2;
+        UINT cEffectType3;
     };
 
     D2DDiagCounters m_diag;

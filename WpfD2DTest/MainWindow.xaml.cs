@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -10,6 +10,7 @@ using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using System.Reflection;
 
 namespace WpfD2DTest;
 
@@ -171,6 +172,7 @@ public partial class MainWindow : Window
         BuildTextPanel();
         BuildImagePanel();
         BuildTransformCanvas((int)TransformSlider.Value);
+        BuildD2DEffectsPanel();
 
         _isLoaded = true;
         UpdateShapeCount();
@@ -924,6 +926,702 @@ public partial class MainWindow : Window
     }
 
     // ══════════════════════════════════════════════════════════════
+    //  TAB 8 — D2D Built-in Effects — Interactive Showcase
+    //  (loaded via reflection since the D2D types only exist
+    //  in our locally-built PresentationCore)
+    // ══════════════════════════════════════════════════════════════
+    private void BuildD2DEffectsPanel()
+    {
+        var asm = typeof(Effect).Assembly;
+
+        var tD2DEffect   = asm.GetType("System.Windows.Media.Effects.D2DEffect");
+        var tD2DEffects  = asm.GetType("System.Windows.Media.Effects.D2DEffects");
+        var tBlur        = asm.GetType("System.Windows.Media.Effects.D2DGaussianBlurEffect");
+        var tSat         = asm.GetType("System.Windows.Media.Effects.D2DSaturationEffect");
+        var tHue         = asm.GetType("System.Windows.Media.Effects.D2DHueRotationEffect");
+        var tShadow      = asm.GetType("System.Windows.Media.Effects.D2DShadowEffect");
+
+        if (tD2DEffect == null)
+        {
+            D2DEffectsPanel.Children.Add(new TextBlock
+            {
+                Text = "D2D effect types not found in this PresentationCore build.\n" +
+                       "Deploy the locally-built PresentationCore.dll to the runtime folder.",
+                FontSize = 14, Foreground = Brushes.OrangeRed,
+                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 20, 0, 0)
+            });
+            return;
+        }
+
+        // ── Theme colors ─────────────────────────────────────────
+        var accentBrush = new SolidColorBrush(Color.FromRgb(0x53, 0xc0, 0xb4));
+        var cardBg      = new SolidColorBrush(Color.FromRgb(0x16, 0x21, 0x3e));
+        var sectionBg   = new SolidColorBrush(Color.FromRgb(0x0f, 0x17, 0x2a));
+        var ctrlPanelBg = new SolidColorBrush(Color.FromRgb(0x1a, 0x28, 0x48));
+        var borderClr   = new SolidColorBrush(Color.FromRgb(0x2a, 0x3a, 0x5c));
+
+        // ── Reflection helpers ───────────────────────────────────
+        Effect? CreateTyped(Type? t) =>
+            t != null ? (Effect?)Activator.CreateInstance(t) : null;
+
+        void SetProp(object obj, string name, object value) =>
+            obj.GetType().GetProperty(name)?.SetValue(obj, value);
+
+        Guid GetClsid(string field) =>
+            (Guid)(tD2DEffects!.GetField(field,
+                BindingFlags.Public | BindingFlags.Static)
+                ?.GetValue(null) ?? Guid.Empty);
+
+        Effect? CreateGeneric(Guid clsid)
+        {
+            var ctor = tD2DEffect!.GetConstructor(new[] { typeof(Guid) });
+            return (Effect?)ctor?.Invoke(new object[] { clsid });
+        }
+
+        void CallSetValue(object fx, int idx, float val)
+        {
+            var m = fx.GetType().GetMethod("SetValue",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null, new[] { typeof(int), typeof(float) }, null);
+            m?.Invoke(fx, new object[] { idx, val });
+        }
+
+        void CallSetValueInt(object fx, int idx, int val)
+        {
+            var m = fx.GetType().GetMethod("SetValue",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null, new[] { typeof(int), typeof(int) }, null);
+            m?.Invoke(fx, new object[] { idx, val });
+        }
+
+        void CallSetInputEffect(object fx, int idx, Effect inputFx)
+        {
+            var m = tD2DEffect!.GetMethod("SetInput",
+                BindingFlags.Instance | BindingFlags.Public,
+                null, new[] { typeof(int), tD2DEffect }, null);
+            m?.Invoke(fx, new object[] { idx, inputFx });
+        }
+
+        void CallSetInputBrush(object fx, int idx, Brush brush)
+        {
+            var m = tD2DEffect!.GetMethod("SetInput",
+                BindingFlags.Instance | BindingFlags.Public,
+                null, new[] { typeof(int), typeof(Brush) }, null);
+            m?.Invoke(fx, new object[] { idx, brush });
+        }
+
+        // ── Target element factories ─────────────────────────────
+        var gradient = new LinearGradientBrush(
+            Color.FromRgb(0xe9, 0x45, 0x60),
+            Color.FromRgb(0x0f, 0x34, 0x60), 45);
+
+        System.Windows.Controls.Image MakeImg(string path, double w, double h)
+        {
+            int dec = Math.Min((int)(w * 2), 1024);
+            return new System.Windows.Controls.Image
+            {
+                Source = GetCachedBitmap(path, dec),
+                Width = w, Height = h,
+                Stretch = Stretch.UniformToFill,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+        }
+
+        Rectangle MakeGradientRect(double w, double h) => new Rectangle
+        {
+            Width = w, Height = h, RadiusX = 6, RadiusY = 6,
+            Fill = gradient.Clone()
+        };
+
+        UIElement MakeRichText() => new TextBlock
+        {
+            Text = "WPF + D2D", FontSize = 26,
+            FontWeight = FontWeights.Bold,
+            Foreground = new LinearGradientBrush(Colors.Gold, Colors.OrangeRed, 0),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        UIElement MakeUIControls()
+        {
+            var sp = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
+            sp.Children.Add(new Button
+            {
+                Content = "Button", FontSize = 12,
+                Padding = new Thickness(14, 5, 14, 5),
+                Margin = new Thickness(0, 2, 0, 2),
+                Background = new LinearGradientBrush(Colors.DodgerBlue, Colors.MediumPurple, 45),
+                Foreground = Brushes.White, BorderBrush = Brushes.Transparent
+            });
+            sp.Children.Add(new ProgressBar
+            {
+                Value = 65, Height = 14, Width = 110,
+                Margin = new Thickness(0, 2, 0, 2),
+                Foreground = new SolidColorBrush(Color.FromRgb(0x53, 0xc0, 0xb4))
+            });
+            sp.Children.Add(new TextBlock
+            {
+                Text = "Label text", Foreground = Brushes.LightGoldenrodYellow,
+                FontSize = 12, Margin = new Thickness(0, 2, 0, 0)
+            });
+            return sp;
+        }
+
+        var galleryTargets = new (string Label, Func<UIElement> Make,
+            double CW, double CH)[]
+        {
+            ("Landscape",   () => MakeImg("Images/landscape_1920.jpg", 140, 90), 160, 130),
+            ("Portrait",    () => MakeImg("Images/portrait_600x900.jpg", 70, 105), 90, 145),
+            ("Square",      () => MakeImg("Images/square_800.jpg", 100, 100), 120, 140),
+            ("Photo",       () => MakeImg("Images/photo_1024x768.jpg", 140, 105), 160, 145),
+            ("Alpha PNG",   () => MakeImg("Images/alpha_circles.png", 100, 100), 120, 140),
+            ("Gradient",    () => (UIElement)MakeGradientRect(130, 85), 150, 125),
+            ("Rich Text",   () => MakeRichText(), 160, 70),
+            ("UI Controls", () => MakeUIControls(), 150, 120),
+        };
+
+        Border MakeCard(string label, UIElement child, double w, double h)
+        {
+            var dock = new DockPanel();
+            var lbl = new TextBlock
+            {
+                Text = label, FontSize = 10, Foreground = Brushes.LightGray,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 4, 0, 2)
+            };
+            DockPanel.SetDock(lbl, Dock.Top);
+            dock.Children.Add(lbl);
+            dock.Children.Add(new Border
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = child
+            });
+            return new Border
+            {
+                Width = w, Height = h, Margin = new Thickness(4),
+                CornerRadius = new CornerRadius(6),
+                Background = cardBg, BorderBrush = borderClr,
+                BorderThickness = new Thickness(1),
+                ClipToBounds = true, Child = dock
+            };
+        }
+
+        // ── Image catalog ────────────────────────────────────────
+        var imageCatalog = new (string Label, string Path)[]
+        {
+            ("Landscape (1920\u00d71080)",  "Images/landscape_1920.jpg"),
+            ("Square (800\u00d7800)",       "Images/square_800.jpg"),
+            ("Portrait (600\u00d7900)",     "Images/portrait_600x900.jpg"),
+            ("Photo (1024\u00d7768)",       "Images/photo_1024x768.jpg"),
+            ("Panoramic (1600\u00d7400)",   "Images/panoramic_1600x400.jpg"),
+            ("Alpha Circles (PNG)",          "Images/alpha_circles.png"),
+        };
+        int selImgIdx = 0;
+
+        // ── Slider-definition helpers ────────────────────────────
+        (string, double, double, double, string, Action<Effect, double>)
+        PropSlider(string label, string prop, double min, double max,
+            double def, string fmt = "F2")
+            => (label, min, max, def, fmt,
+                (fx, v) => SetProp(fx, prop, (float)v));
+
+        (string, double, double, double, string, Action<Effect, double>)
+        PropIntSlider(string label, string prop, double min, double max,
+            double def)
+            => (label, min, max, def, "F0",
+                (fx, v) => SetProp(fx, prop, (int)Math.Round(v)));
+
+        (string, double, double, double, string, Action<Effect, double>)
+        ValSlider(string label, int index, double min, double max,
+            double def, string fmt = "F2")
+            => (label, min, max, def, fmt,
+                (fx, v) => CallSetValue(fx, index, (float)v));
+
+        (string, double, double, double, string, Action<Effect, double>)
+        IntValSlider(string label, int index, double min, double max,
+            double def)
+            => (label, min, max, def, "F0",
+                (fx, v) => CallSetValueInt(fx, index, (int)Math.Round(v)));
+
+        var emptySliders = Array.Empty<(string, double, double, double, string,
+            Action<Effect, double>)>();
+
+        // Shadow color state (persists across rebuilds)
+        Color shadowColor = Colors.Black;
+
+        // Effect chain state (captured references to inner effects)
+        Effect? chainBlurRef = null;
+        Effect? chainSepiaRef = null;
+
+        // Blend mode state
+        int blendModeIdx = 0;
+        float blendHueAngle = 120f;
+        Effect? blendFgRef = null;
+        var blendModeNames = new[]
+        {
+            "Multiply", "Screen", "Darken", "Lighten",
+            "Color Burn", "Color Dodge", "Linear Burn", "Linear Dodge",
+            "Darker Color", "Lighter Color",
+            "Overlay", "Soft Light", "Hard Light", "Vivid Light",
+            "Linear Light", "Pin Light", "Hard Mix",
+            "Difference", "Exclusion",
+            "Hue", "Saturation", "Color", "Luminosity",
+            "Dissolve", "Subtract", "Division"
+        };
+
+        // ═══════════════════════════════════════════════════════════
+        //  Effect definitions — one entry per effect
+        // ═══════════════════════════════════════════════════════════
+        var effectDefs = new (
+            string Name,
+            Func<Effect?> Factory,
+            (string Label, double Min, double Max, double Def, string Fmt,
+             Action<Effect, double> Apply)[] Sliders,
+            Action<StackPanel, Action>? ExtraControls,
+            Action<Effect>? InitExtra)[]
+        {
+            // ── Typed effects ────────────────────────────────────
+            ("Gaussian Blur",
+                () => CreateTyped(tBlur),
+                new[] {
+                    PropSlider("Standard Deviation (\u03c3)", "StandardDeviation", 0, 50, 3, "F1"),
+                    PropIntSlider("Border Mode (0=Soft, 1=Hard)", "BorderMode", 0, 1, 0),
+                    PropIntSlider("Optimization (0=Speed, 1=Balanced, 2=Quality)", "Optimization", 0, 2, 1),
+                }, null, null),
+
+            ("Saturation",
+                () => CreateTyped(tSat),
+                new[] { PropSlider("Saturation", "Saturation", 0, 1, 0.5) },
+                null, null),
+
+            ("Hue Rotation",
+                () => CreateTyped(tHue),
+                new[] { PropSlider("Angle (\u00b0)", "Angle", 0, 360, 0, "F0") },
+                null, null),
+
+            ("Shadow",
+                () => CreateTyped(tShadow),
+                new[] {
+                    PropSlider("Blur Std Deviation", "BlurStandardDeviation", 0, 20, 3, "F1"),
+                    PropIntSlider("Optimization (0=Speed, 1=Balanced, 2=Quality)", "Optimization", 0, 2, 1),
+                },
+                (StackPanel panel, Action rebuild) =>
+                {
+                    panel.Children.Add(new TextBlock
+                    {
+                        Text = "Shadow Color", FontSize = 12,
+                        Foreground = Brushes.LightGray,
+                        Margin = new Thickness(0, 8, 0, 4)
+                    });
+                    var colorRow = new WrapPanel();
+                    foreach (var (name, c) in new (string, Color)[]
+                    {
+                        ("Black",   Colors.Black),
+                        ("Crimson", Colors.Crimson),
+                        ("Blue",    Colors.DeepSkyBlue),
+                        ("Gold",    Colors.Gold),
+                        ("Green",   Colors.LimeGreen),
+                        ("Purple",  Colors.MediumPurple),
+                    })
+                    {
+                        var col = c;
+                        var btn = new Button
+                        {
+                            Content = name, FontSize = 11,
+                            Padding = new Thickness(8, 3, 8, 3),
+                            Margin = new Thickness(0, 0, 4, 4),
+                            Background = new SolidColorBrush(c),
+                            Foreground = c == Colors.Black ? Brushes.White : Brushes.Black,
+                            BorderBrush = Brushes.Transparent
+                        };
+                        btn.Click += (_, _) => { shadowColor = col; rebuild(); };
+                        colorRow.Children.Add(btn);
+                    }
+                    panel.Children.Add(colorRow);
+                },
+                fx => SetProp(fx, "ShadowColor", shadowColor)),
+
+            // ── Generic effects (by CLSID) ───────────────────────
+            ("Sepia",
+                () => CreateGeneric(GetClsid("Sepia")),
+                new[] { ValSlider("Intensity", 0, 0, 1, 0.5) },
+                null, null),
+
+            ("Grayscale",
+                () => CreateGeneric(GetClsid("Grayscale")),
+                emptySliders, null, null),
+
+            ("Invert",
+                () => CreateGeneric(GetClsid("Invert")),
+                emptySliders, null, null),
+
+            ("Contrast",
+                () => CreateGeneric(GetClsid("Contrast")),
+                new[] { ValSlider("Contrast", 0, -1, 1, 0) },
+                null, null),
+
+            ("Exposure",
+                () => CreateGeneric(GetClsid("Exposure")),
+                new[] { ValSlider("Exposure Value", 0, -2, 2, 0) },
+                null, null),
+
+            ("Sharpen",
+                () => CreateGeneric(GetClsid("Sharpen")),
+                new[] {
+                    ValSlider("Sharpness", 0, 0, 10, 0, "F1"),
+                    ValSlider("Threshold", 1, 0, 1, 0.5),
+                }, null, null),
+
+            ("Temperature & Tint",
+                () => CreateGeneric(GetClsid("TemperatureAndTint")),
+                new[] {
+                    ValSlider("Temperature", 0, -1, 1, 0),
+                    ValSlider("Tint", 1, -1, 1, 0),
+                }, null, null),
+
+            ("Straighten",
+                () => CreateGeneric(GetClsid("Straighten")),
+                new[] { ValSlider("Angle", 0, -45, 45, 0, "F1") },
+                null, null),
+
+            ("Highlights & Shadows",
+                () => CreateGeneric(GetClsid("HighlightsAndShadows")),
+                new[] {
+                    ValSlider("Highlights", 0, -1, 1, 0),
+                    ValSlider("Shadows", 1, -1, 1, 0),
+                    ValSlider("Clarity", 2, -1, 1, 0),
+                }, null, null),
+
+            ("Posterize",
+                () => CreateGeneric(GetClsid("Posterize")),
+                new[] {
+                    IntValSlider("Red Values", 0, 2, 16, 4),
+                    IntValSlider("Green Values", 1, 2, 16, 4),
+                    IntValSlider("Blue Values", 2, 2, 16, 4),
+                }, null, null),
+
+            ("Vignette",
+                () => CreateGeneric(GetClsid("Vignette")),
+                new[] {
+                    ValSlider("Transition Size", 1, 0, 1, 0.1),
+                    ValSlider("Strength", 2, 0, 1, 0.5),
+                }, null, null),
+
+            // ── Effect chaining ──────────────────────────────────
+            ("Effect Chain (Blur \u2192 Sepia)",
+                () =>
+                {
+                    var blur = CreateGeneric(GetClsid("GaussianBlur"));
+                    chainBlurRef = blur;
+                    // blur input 0 = ImplicitInput (default)
+
+                    var sepia = CreateGeneric(GetClsid("Sepia"));
+                    chainSepiaRef = sepia;
+                    // sepia input 0 = blur (chaining!)
+                    if (blur != null && sepia != null)
+                        CallSetInputEffect(sepia, 0, blur);
+
+                    return sepia;
+                },
+                new[] {
+                    ("Blur \u03c3", 0d, 50d, 3d, "F1",
+                        (Action<Effect, double>)((_, v) =>
+                        { if (chainBlurRef != null) CallSetValue(chainBlurRef, 0, (float)v); })),
+                    ("Sepia Intensity", 0d, 1d, 0.5d, "F2",
+                        (Action<Effect, double>)((_, v) =>
+                        { if (chainSepiaRef != null) CallSetValue(chainSepiaRef, 0, (float)v); })),
+                },
+                null, null),
+
+            // ── Blend modes ──────────────────────────────────────
+            ("Blend Modes",
+                () =>
+                {
+                    // Foreground = hue-rotated version of source
+                    var hue = CreateGeneric(GetClsid("HueRotation"));
+                    blendFgRef = hue;
+                    if (hue != null)
+                        CallSetValue(hue, 0, blendHueAngle);
+
+                    // Blend: input 0 = original (implicit), input 1 = hue-rotated
+                    var blend = CreateGeneric(GetClsid("Blend"));
+                    if (blend != null)
+                    {
+                        CallSetValueInt(blend, 0, blendModeIdx);
+                        CallSetInputBrush(blend, 0, Effect.ImplicitInput);
+                        if (hue != null)
+                            CallSetInputEffect(blend, 1, hue);
+                    }
+                    return blend;
+                },
+                new[] {
+                    ("Hue Rotation Angle (\u00b0)", 0d, 360d, 120d, "F0",
+                        (Action<Effect, double>)((_, v) =>
+                        {
+                            blendHueAngle = (float)v;
+                        })),
+                },
+                (StackPanel panel, Action rebuild) =>
+                {
+                    panel.Children.Add(new TextBlock
+                    {
+                        Text = "Blend Mode", FontSize = 12,
+                        Foreground = Brushes.LightGray,
+                        Margin = new Thickness(0, 8, 0, 4)
+                    });
+                    var modeCb = new ComboBox { Width = 200, FontSize = 12 };
+                    foreach (var name in blendModeNames) modeCb.Items.Add(name);
+                    modeCb.SelectedIndex = blendModeIdx;
+                    modeCb.SelectionChanged += (_, _) =>
+                    {
+                        blendModeIdx = modeCb.SelectedIndex;
+                        rebuild();
+                    };
+                    panel.Children.Add(modeCb);
+                },
+                null),
+        };
+
+        // ═══════════════════════════════════════════════════════════
+        //  UI Layout
+        // ═══════════════════════════════════════════════════════════
+
+        D2DEffectsPanel.Children.Add(new TextBlock
+        {
+            Text = "D2D Effects Showcase", FontSize = 24,
+            FontWeight = FontWeights.Bold, Foreground = accentBrush,
+            Margin = new Thickness(0, 4, 0, 12)
+        });
+
+        // Selector row: effect dropdown + image dropdown
+        var selectorRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 0, 0, 16)
+        };
+        selectorRow.Children.Add(new TextBlock
+        {
+            Text = "Effect: ", FontSize = 14, Foreground = Brushes.White,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 6, 0)
+        });
+        var effectCombo = new ComboBox { Width = 220, FontSize = 13 };
+        foreach (var def in effectDefs) effectCombo.Items.Add(def.Name);
+        effectCombo.SelectedIndex = 0;
+        selectorRow.Children.Add(effectCombo);
+
+        selectorRow.Children.Add(new TextBlock
+        {
+            Text = "Preview Image: ", FontSize = 14, Foreground = Brushes.White,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(24, 0, 6, 0)
+        });
+        var imgCombo = new ComboBox { Width = 220, FontSize = 13 };
+        foreach (var (lbl, _) in imageCatalog) imgCombo.Items.Add(lbl);
+        imgCombo.SelectedIndex = 0;
+        selectorRow.Children.Add(imgCombo);
+
+        D2DEffectsPanel.Children.Add(selectorRow);
+
+        // Content host (rebuilt when effect or image changes)
+        var contentHost = new StackPanel();
+        D2DEffectsPanel.Children.Add(contentHost);
+
+        // ═══════════════════════════════════════════════════════════
+        //  Saved slider values per effect index (survives rebuilds)
+        // ═══════════════════════════════════════════════════════════
+        var savedValues = new Dictionary<int, double[]>();
+
+        void RebuildContent()
+        {
+            contentHost.Children.Clear();
+
+            int ei = effectCombo.SelectedIndex;
+            if (ei < 0 || ei >= effectDefs.Length) return;
+
+            var def = effectDefs[ei];
+
+            // Restore saved slider values or use defaults
+            if (!savedValues.TryGetValue(ei, out var curVals))
+            {
+                curVals = def.Sliders.Select(s => s.Def).ToArray();
+                savedValues[ei] = curVals;
+            }
+
+            var allPairs = new List<(UIElement El, Effect? Fx)>();
+
+            Effect? FreshFx()
+            {
+                var fx = def.Factory();
+                if (fx == null) return null;
+                for (int k = 0; k < def.Sliders.Length; k++)
+                    def.Sliders[k].Apply(fx, curVals[k]);
+                def.InitExtra?.Invoke(fx);
+                return fx;
+            }
+
+            void RebuildEffects()
+            {
+                for (int k = 0; k < allPairs.Count; k++)
+                {
+                    var (el, _) = allPairs[k];
+                    var newFx = FreshFx();
+                    el.Effect = newFx;
+                    allPairs[k] = (el, newFx);
+                }
+            }
+
+            Effect? MakeFx(UIElement target)
+            {
+                var fx = FreshFx();
+                allPairs.Add((target, fx));
+                return fx;
+            }
+
+            // Section wrapper
+            var sectionBorder = new Border
+            {
+                Background = sectionBg, CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(16), Margin = new Thickness(0, 0, 0, 14),
+                BorderBrush = borderClr, BorderThickness = new Thickness(1)
+            };
+            var sectionStack = new StackPanel();
+
+            sectionStack.Children.Add(new TextBlock
+            {
+                Text = def.Name, FontSize = 20,
+                FontWeight = FontWeights.Bold, Foreground = accentBrush,
+                Margin = new Thickness(0, 0, 0, 12)
+            });
+
+            // ── Controls + Preview row ───────────────────────────
+            var row = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+            bool hasControls = def.Sliders.Length > 0 || def.ExtraControls != null;
+
+            if (hasControls)
+            {
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(300) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+                var ctrlStack = new StackPanel();
+                ctrlStack.Children.Add(new TextBlock
+                {
+                    Text = "Parameters", FontSize = 14,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = Brushes.White,
+                    Margin = new Thickness(0, 0, 0, 8)
+                });
+
+                for (int si = 0; si < def.Sliders.Length; si++)
+                {
+                    int capIdx = si;
+                    var cap = def.Sliders[si];
+                    bool isInt = cap.Fmt == "F0";
+                    var valText = new TextBlock
+                    {
+                        Text = $"{cap.Label}: {curVals[si].ToString(cap.Fmt)}",
+                        FontSize = 12, Foreground = Brushes.LightGray,
+                        Margin = new Thickness(0, 4, 0, 2)
+                    };
+                    var slider = new Slider
+                    {
+                        Minimum = cap.Min, Maximum = cap.Max,
+                        Value = curVals[si],
+                        IsSnapToTickEnabled = isInt,
+                        SmallChange = isInt ? 1 : (cap.Max - cap.Min) / 200,
+                        LargeChange = isInt ? 1 : (cap.Max - cap.Min) / 20,
+                        Margin = new Thickness(0, 0, 0, 6)
+                    };
+                    slider.ValueChanged += (_, args) =>
+                    {
+                        double v = isInt ? Math.Round(args.NewValue) : args.NewValue;
+                        valText.Text = $"{cap.Label}: {v.ToString(cap.Fmt)}";
+                        curVals[capIdx] = v;
+                        RebuildEffects();
+                    };
+                    ctrlStack.Children.Add(valText);
+                    ctrlStack.Children.Add(slider);
+                }
+
+                def.ExtraControls?.Invoke(ctrlStack, RebuildEffects);
+
+                var ctrlBorder = new Border
+                {
+                    Background = ctrlPanelBg, CornerRadius = new CornerRadius(6),
+                    Padding = new Thickness(14), Margin = new Thickness(0, 0, 12, 0),
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Child = ctrlStack
+                };
+                Grid.SetColumn(ctrlBorder, 0);
+                row.Children.Add(ctrlBorder);
+            }
+            else
+            {
+                row.ColumnDefinitions.Add(new ColumnDefinition
+                    { Width = new GridLength(1, GridUnitType.Star) });
+            }
+
+            // Main preview
+            int previewCol = hasControls ? 1 : 0;
+            var previewImg = new System.Windows.Controls.Image
+            {
+                Source = GetCachedBitmap(imageCatalog[selImgIdx].Path, 800),
+                Stretch = Stretch.UniformToFill,
+                Width = 380, Height = 260,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var previewBorder = new Border
+            {
+                Width = 500, Height = 340,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Child = previewImg
+            };
+            var fxPreview = MakeFx(previewImg);
+            if (fxPreview != null) previewImg.Effect = fxPreview;
+
+            Grid.SetColumn(previewBorder, previewCol);
+            row.Children.Add(previewBorder);
+            sectionStack.Children.Add(row);
+
+            // ── Gallery ──────────────────────────────────────────
+            sectionStack.Children.Add(new TextBlock
+            {
+                Text = "Applied to various targets:",
+                FontSize = 12, Foreground = Brushes.Gray,
+                Margin = new Thickness(0, 2, 0, 6)
+            });
+            var gallery = new WrapPanel();
+            gallery.Children.Add(MakeCard("Original (no fx)",
+                MakeImg("Images/landscape_1920.jpg", 120, 80), 140, 120));
+            foreach (var (lbl, make, cw, ch) in galleryTargets)
+            {
+                var el = make();
+                var fx = MakeFx(el);
+                if (fx != null) el.Effect = fx;
+                gallery.Children.Add(MakeCard(lbl, el, cw, ch));
+            }
+            sectionStack.Children.Add(gallery);
+
+            sectionBorder.Child = sectionStack;
+            contentHost.Children.Add(sectionBorder);
+        }
+
+        // Wire up selectors
+        effectCombo.SelectionChanged += (_, _) => RebuildContent();
+        imgCombo.SelectionChanged += (_, _) =>
+        {
+            selImgIdx = imgCombo.SelectedIndex;
+            RebuildContent();
+        };
+
+        // Initial build
+        RebuildContent();
+    }
+
+    // ══════════════════════════════════════════════════════════════
     //  Slider change handlers — rebuild tab contents dynamically
     // ══════════════════════════════════════════════════════════════
     private void ParticleSlider_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -980,7 +1678,8 @@ public partial class MainWindow : Window
                      + EffectsPanel.Children.Count
                      + TextPanel.Children.Count
                      + ImagePanel.Children.Count
-                     + TransformCanvas.Children.Count;
+                     + TransformCanvas.Children.Count
+                     + D2DEffectsPanel.Children.Count;
         ShapeCountText.Text = $"Shapes: {_totalShapes}";
     }
 

@@ -684,34 +684,6 @@ CD2DDisplayRenderTarget::Present(
     HRESULT hr = S_OK;
 
     //
-    // Breadcrumb: record that Present() was reached.
-    //
-
-    {
-        static LONG s_presentCount = 0;
-        LONG count = InterlockedIncrement(&s_presentCount);
-
-        WCHAR breadcrumb[MAX_PATH];
-        if (GetTempPathW(MAX_PATH, breadcrumb) > 0)
-        {
-            wcscat_s(breadcrumb, MAX_PATH, L"wpf_d2d_present.log");
-
-            HANDLE hBC = CreateFileW(breadcrumb, GENERIC_WRITE, FILE_SHARE_READ,
-                NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-            if (hBC != INVALID_HANDLE_VALUE)
-            {
-                WCHAR msg[256];
-                int msgLen = swprintf_s(msg, ARRAYSIZE(msg),
-                    L"Present called %ld times. EnableRendering=%d SwapChain=%p D2DCtx=%p\r\n",
-                    count, (int)m_fEnableRendering, (void*)m_pSwapChain.Get(), (void*)m_pD2DContext.Get());
-                DWORD written;
-                WriteFile(hBC, msg, msgLen * sizeof(WCHAR), &written, NULL);
-                CloseHandle(hBC);
-            }
-        }
-    }
-
-    //
     // Don't present if rendering is disabled.
     //
 

@@ -345,29 +345,6 @@ CD2DSurfaceRenderTarget::BeginDrawBatch()
     {
         m_pD2DContext->BeginDraw();
         m_fDrawBatchOpen = true;
-
-        // Log batch open with this pointer and target
-        {
-            static LONG s_bo = 0;
-            LONG bo = InterlockedIncrement(&s_bo);
-            if (bo <= 20)
-            {
-                ComPtr<ID2D1Image> pTgt;
-                m_pD2DContext->GetTarget(&pTgt);
-                WCHAR ep[MAX_PATH];
-                if (GetTempPathW(MAX_PATH, ep) > 0) {
-                    wcscat_s(ep, MAX_PATH, L"wpf_d2d_err.log");
-                    HANDLE h = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                    if (h != INVALID_HANDLE_VALUE) {
-                        WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
-                            L"BeginBatch #%ld this=%p ctx=%p target=%p size=%ux%u\r\n",
-                            bo, this, m_pD2DContext.Get(), pTgt.Get(), m_uWidth, m_uHeight);
-                        DWORD w; WriteFile(h, m, l*sizeof(WCHAR), &w, NULL);
-                        CloseHandle(h);
-                    }
-                }
-            }
-        }
     }
     return S_OK;
 }
@@ -379,87 +356,8 @@ CD2DSurfaceRenderTarget::FlushDrawBatch()
 
     if (m_fDrawBatchOpen && m_pD2DContext)
     {
-        // Log batch flush with this pointer
-        {
-            static LONG s_bf = 0;
-            LONG bf = InterlockedIncrement(&s_bf);
-            if (bf <= 20)
-            {
-                ComPtr<ID2D1Image> pTgt;
-                m_pD2DContext->GetTarget(&pTgt);
-                WCHAR ep[MAX_PATH];
-                if (GetTempPathW(MAX_PATH, ep) > 0) {
-                    wcscat_s(ep, MAX_PATH, L"wpf_d2d_err.log");
-                    HANDLE h = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                    if (h != INVALID_HANDLE_VALUE) {
-                        WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
-                            L"FlushBatch #%ld this=%p ctx=%p target=%p size=%ux%u\r\n",
-                            bf, this, m_pD2DContext.Get(), pTgt.Get(), m_uWidth, m_uHeight);
-                        DWORD w; WriteFile(h, m, l*sizeof(WCHAR), &w, NULL);
-                        CloseHandle(h);
-                    }
-                }
-            }
-        }
-
-        // DIAGNOSTIC: bracket EndDraw with QPC to measure GPU stall
-        {
-            LARGE_INTEGER qpcBefore, qpcAfter, qpcFreq;
-            QueryPerformanceFrequency(&qpcFreq);
-            QueryPerformanceCounter(&qpcBefore);
-
-            hr = m_pD2DContext->EndDraw();
-            m_fDrawBatchOpen = false;
-
-            QueryPerformanceCounter(&qpcAfter);
-            double msEndDraw = (double)(qpcAfter.QuadPart - qpcBefore.QuadPart) * 1000.0 / (double)qpcFreq.QuadPart;
-
-            static LONG s_flushSeq = 0;
-            LONG seq = InterlockedIncrement(&s_flushSeq);
-
-            // Log every EndDraw (first 500) with elapsed ms
-            if (seq <= 500)
-            {
-                WCHAR ep[MAX_PATH];
-                if (GetTempPathW(MAX_PATH, ep) > 0) {
-                    wcscat_s(ep, MAX_PATH, L"wpf_d2d_enddraw.log");
-                    HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                    if (hf != INVALID_HANDLE_VALUE) {
-                        WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
-                            L"ED#%ld hr=%08lX ms=%.3f layers=%u sz=%ux%u\r\n",
-                            seq, (unsigned long)hr, msEndDraw, m_layerCount, m_uWidth, m_uHeight);
-                        DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
-                        CloseHandle(hf);
-                    }
-                }
-            }
-        }
-
-        //
-        // Log EndDraw errors — these indicate a D2D context error that
-        // silently discarded all draw calls since BeginDraw.
-        //
-
-        if (FAILED(hr))
-        {
-            static LONG s_edErr = 0;
-            LONG edErr = InterlockedIncrement(&s_edErr);
-            if (edErr <= 100)
-            {
-                WCHAR ep[MAX_PATH];
-                if (GetTempPathW(MAX_PATH, ep) > 0) {
-                    wcscat_s(ep, MAX_PATH, L"wpf_d2d_err.log");
-                    HANDLE h = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                    if (h != INVALID_HANDLE_VALUE) {
-                        WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
-                            L"EndDraw ERROR #%ld hr=0x%08lX this=%p ctx=%p layers=%u sz=%ux%u\r\n",
-                            edErr, (ULONG)hr, this, m_pD2DContext.Get(), m_layerCount, m_uWidth, m_uHeight);
-                        DWORD w; WriteFile(h, m, l*sizeof(WCHAR), &w, NULL);
-                        CloseHandle(h);
-                    }
-                }
-            }
-        }
+        hr = m_pD2DContext->EndDraw();
+        m_fDrawBatchOpen = false;
     }
 
     return hr;
@@ -908,24 +806,6 @@ CD2DSurfaceRenderTarget::GetOrCreateCachedBitmap(
             entry.pBitmap)
         {
             // Cache hit — return existing D2D bitmap.
-            {
-                static LONG s_hitCount = 0;
-                LONG c = InterlockedIncrement(&s_hitCount);
-                if (c <= 50)
-                {
-                    WCHAR ep[MAX_PATH];
-                    if (GetTempPathW(MAX_PATH, ep) > 0) {
-                        wcscat_s(ep, MAX_PATH, L"wpf_d2d_drawbitmap.log");
-                        HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                        if (hf != INVALID_HANDLE_VALUE) {
-                            WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
-                                L"  BmpCache HIT #%ld: src=%p %ux%u idx=%u\r\n", c, pSource, width, height, cacheIdx);
-                            DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
-                            CloseHandle(hf);
-                        }
-                    }
-                }
-            }
             entry.pBitmap.Get()->AddRef();
             *ppBitmap = entry.pBitmap.Get();
             goto Cleanup;
@@ -934,81 +814,10 @@ CD2DSurfaceRenderTarget::GetOrCreateCachedBitmap(
         //
         // Cache miss — create the D2D bitmap via ConvertBitmapSource.
         //
-        {
-            static LONG s_missCount = 0;
-            LONG c = InterlockedIncrement(&s_missCount);
-
-            // Log to freeze log (uncapped) for cache miss
-            {
-                LARGE_INTEGER missNow; QueryPerformanceCounter(&missNow);
-                WCHAR ep[MAX_PATH];
-                if (GetTempPathW(MAX_PATH, ep) > 0) {
-                    wcscat_s(ep, MAX_PATH, L"wpf_d2d_freeze.log");
-                    HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                    if (hf != INVALID_HANDLE_VALUE) {
-                        MilPixelFormat::Enum pf = MilPixelFormat::Undefined;
-                        pSource->GetPixelFormat(&pf);
-                        WCHAR m[512]; int l = swprintf_s(m, ARRAYSIZE(m),
-                            L"  CACHE_MISS #%ld t=%lld src=%p %ux%u idx=%u fmt=%d\r\n",
-                            c, missNow.QuadPart, pSource, width, height, cacheIdx, (int)pf);
-                        DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
-                        CloseHandle(hf);
-                    }
-                }
-            }
-
-            WCHAR ep2[MAX_PATH];
-            if (GetTempPathW(MAX_PATH, ep2) > 0) {
-                wcscat_s(ep2, MAX_PATH, L"wpf_d2d_drawbitmap.log");
-                HANDLE hf = CreateFileW(ep2, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                if (hf != INVALID_HANDLE_VALUE) {
-                    WCHAR m[512]; int l = swprintf_s(m, ARRAYSIZE(m),
-                        L"  BmpCache MISS #%ld: src=%p %ux%u idx=%u (entry.key=%p entry.w=%u entry.h=%u)\r\n",
-                        c, pSource, width, height, cacheIdx,
-                        entry.pSourceKey, entry.width, entry.height);
-                    DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
-                    CloseHandle(hf);
-                }
-            }
-        }
-
-        // Log PRE_CONVERT to freeze log
-        {
-            LARGE_INTEGER cvtNow; QueryPerformanceCounter(&cvtNow);
-            WCHAR ep[MAX_PATH];
-            if (GetTempPathW(MAX_PATH, ep) > 0) {
-                wcscat_s(ep, MAX_PATH, L"wpf_d2d_freeze.log");
-                HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                if (hf != INVALID_HANDLE_VALUE) {
-                    WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
-                        L"  PRE_CONVERT t=%lld src=%p %ux%u\r\n",
-                        cvtNow.QuadPart, pSource, width, height);
-                    DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
-                    CloseHandle(hf);
-                }
-            }
-        }
 
         ComPtr<ID2D1Bitmap1> pNewBitmap;
         D2D_IFC(CD2DBitmapConverter::ConvertBitmapSource(
             m_pD2DContext.Get(), pSource, &pNewBitmap));
-
-        // Log POST_CONVERT to freeze log
-        {
-            LARGE_INTEGER cvtNow; QueryPerformanceCounter(&cvtNow);
-            WCHAR ep[MAX_PATH];
-            if (GetTempPathW(MAX_PATH, ep) > 0) {
-                wcscat_s(ep, MAX_PATH, L"wpf_d2d_freeze.log");
-                HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                if (hf != INVALID_HANDLE_VALUE) {
-                    WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
-                        L"  POST_CONVERT t=%lld src=%p %ux%u\r\n",
-                        cvtNow.QuadPart, pSource, width, height);
-                    DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
-                    CloseHandle(hf);
-                }
-            }
-        }
 
         // Store in cache.
         entry.pSourceKey = static_cast<const void *>(pSource);
@@ -1044,31 +853,6 @@ CD2DSurfaceRenderTarget::DrawBitmap(
 
     Assert(pContextState);
     Assert(pIBitmap);
-
-    // DIAGNOSTIC: test if DrawBitmap is the freeze source
-    {
-        static LONG s_dbCount = 0;
-        LONG c = InterlockedIncrement(&s_dbCount);
-        // Log ALL DrawBitmap calls (uncapped) - this method shouldn't be called often
-        {
-            UINT w2 = 0, h2 = 0;
-            pIBitmap->GetSize(&w2, &h2);
-            LARGE_INTEGER dbNow;
-            QueryPerformanceCounter(&dbNow);
-            WCHAR ep[MAX_PATH];
-            if (GetTempPathW(MAX_PATH, ep) > 0) {
-                wcscat_s(ep, MAX_PATH, L"wpf_d2d_drawbitmap.log");
-                HANDLE h = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                if (h != INVALID_HANDLE_VALUE) {
-                    WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
-                        L"DrawBitmap #%ld: bmp=%p size=%ux%u fx=%p t=%lld\r\n",
-                        c, pIBitmap, w2, h2, pIEffect, dbNow.QuadPart);
-                    DWORD dw; WriteFile(h, m, l*sizeof(WCHAR), &dw, NULL);
-                    CloseHandle(h);
-                }
-            }
-        }
-    }
 
     if (!IsValid())
     {
@@ -1130,9 +914,6 @@ CD2DSurfaceRenderTarget::DrawBitmap(
     // Slow path: bitmap source is not D2D-backed.  Use the bitmap source
     // cache to avoid per-frame CopyPixels + CreateBitmap overhead.
     //
-
-    // DIAGNOSTIC: skip bitmap drawing to test if freeze is here
-    goto Cleanup;
 
     {
         ComPtr<ID2D1Bitmap1> pDrawBitmap;
@@ -1276,59 +1057,6 @@ CD2DSurfaceRenderTarget::DrawPath(
 
     m_diag.cDrawPath++;
 
-    // HEARTBEAT: log every 500 DrawPath calls + detailed per-call near freeze
-    {
-        static LONG s_dpHeart = 0;
-        LONG hb = InterlockedIncrement(&s_dpHeart);
-
-        // Log every 500 calls as heartbeat
-        if (hb % 500 == 0)
-        {
-            LARGE_INTEGER hbNow;
-            QueryPerformanceCounter(&hbNow);
-            WCHAR ep[MAX_PATH];
-            if (GetTempPathW(MAX_PATH, ep) > 0) {
-                wcscat_s(ep, MAX_PATH, L"wpf_d2d_heartbeat.log");
-                HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                if (hf != INVALID_HANDLE_VALUE) {
-                    WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
-                        L"HB dp=%ld t=%lld this=%p sz=%ux%u ly=%u\r\n",
-                        hb, hbNow.QuadPart, this, m_uWidth, m_uHeight, m_layerCount);
-                    DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
-                    CloseHandle(hf);
-                }
-            }
-        }
-
-        // Per-call detail logging near freeze (dp > 32500)
-        if (hb > 32500)
-        {
-            bool isR = pPath->IsAxisAlignedRectangle() && pPath->GetFigureCount() == 1;
-            int fType = -1;
-            CMILBrush *pPre = pFillBrush ? pFillBrush->GetRealizedBrushNoRef(false) : nullptr;
-            if (pPre) fType = (int)pPre->GetType();
-            int sType = -1;
-            CMILBrush *pSPre = pStrokeBrush ? pStrokeBrush->GetRealizedBrushNoRef(false) : nullptr;
-            if (pSPre) sType = (int)pSPre->GetType();
-
-            LARGE_INTEGER detNow;
-            QueryPerformanceCounter(&detNow);
-            WCHAR ep[MAX_PATH];
-            if (GetTempPathW(MAX_PATH, ep) > 0) {
-                wcscat_s(ep, MAX_PATH, L"wpf_d2d_freeze.log");
-                HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                if (hf != INVALID_HANDLE_VALUE) {
-                    WCHAR m[512]; int l = swprintf_s(m, ARRAYSIZE(m),
-                        L"DP#%ld ENTER t=%lld r=%d fT=%d sT=%d ly=%u sz=%ux%u pen=%d figs=%u\r\n",
-                        hb, detNow.QuadPart, (int)isR, fType, sType, m_layerCount,
-                        m_uWidth, m_uHeight, (pPen ? 1 : 0), pPath->GetFigureCount());
-                    DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
-                    CloseHandle(hf);
-                }
-            }
-        }
-    }
-
     //
     // Apply the world-to-device transform.
     //
@@ -1341,48 +1069,6 @@ CD2DSurfaceRenderTarget::DrawPath(
             mat._41, mat._42
         );
         m_pD2DContext->SetTransform(d2dTransform);
-
-        // TEMP DIAGNOSTIC: log ellipse shapes (4 segs, 13pts)
-        {
-            static LONG s_dp = 0;
-            UINT fc = pPath->GetFigureCount();
-            if (fc == 1) {
-                const IFigureData &fig = pPath->GetFigure(0);
-                UINT cSeg = 0, cPts = 0;
-                fig.GetCountsEstimate(cSeg, cPts);
-                // Log any 4-seg/13-pt ellipse figure
-                if (cSeg == 4 && cPts == 13) {
-                    LONG dp = InterlockedIncrement(&s_dp);
-                    if (dp <= 40) {
-                        const MilPoint2F &sp = fig.GetStartPoint();
-                        WCHAR ep[MAX_PATH];
-                        if (GetTempPathW(MAX_PATH, ep) > 0) {
-                            wcscat_s(ep, MAX_PATH, L"wpf_d2d_drawpath.log");
-                            HANDLE h = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                            if (h != INVALID_HANDLE_VALUE) {
-                                WCHAR m[768]; int l = 0;
-                                WCHAR ptBuf[256] = L"";
-                                if (fig.SetToFirstSegment()) {
-                                    BYTE bType = 0;
-                                    const MilPoint2F *pPts = nullptr;
-                                    fig.GetCurrentSegment(bType, pPts);
-                                    swprintf_s(ptBuf, ARRAYSIZE(ptBuf),
-                                        L" type=%d bez0=[(%.2f,%.2f)(%.2f,%.2f)(%.2f,%.2f)]",
-                                        bType, pPts[0].X, pPts[0].Y, pPts[1].X, pPts[1].Y, pPts[2].X, pPts[2].Y);
-                                }
-                                l = swprintf_s(m, ARRAYSIZE(m),
-                                    L"ELLIPSE#%ld shape=%p start=(%.2f,%.2f) xform=[%.4f %.4f %.4f %.4f %.2f %.2f]%s\r\n",
-                                    dp, pPath, sp.X, sp.Y,
-                                    mat._11, mat._12, mat._21, mat._22, mat._41, mat._42,
-                                    ptBuf);
-                                DWORD w; WriteFile(h, m, l*sizeof(WCHAR), &w, NULL);
-                                CloseHandle(h);
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 
     D2D_IFC(BeginDrawBatch());
@@ -1418,26 +1104,6 @@ CD2DSurfaceRenderTarget::DrawPath(
 
             if (pTexture)
             {
-                // BREADCRUMB: log each step to find freeze point
-                auto logBreadcrumb = [&](const WCHAR *step, UINT_PTR extra = 0) {
-                    WCHAR ep[MAX_PATH];
-                    if (GetTempPathW(MAX_PATH, ep) > 0) {
-                        wcscat_s(ep, MAX_PATH, L"wpf_d2d_freeze.log");
-                        HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                        if (hf != INVALID_HANDLE_VALUE) {
-                            LARGE_INTEGER bcNow; QueryPerformanceCounter(&bcNow);
-                            UINT w3=0,h3=0; pTexture->GetSize(&w3,&h3);
-                            WCHAR m[512]; int l = swprintf_s(m, ARRAYSIZE(m),
-                                L"  BC t=%lld %s tex=%p %ux%u ex=%llu\r\n",
-                                bcNow.QuadPart, step, pTexture, w3, h3, (unsigned long long)extra);
-                            DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
-                            CloseHandle(hf);
-                        }
-                    }
-                };
-
-                logBreadcrumb(L"GOT_TEXTURE");
-
                 CMILMatrix matBitmapToWorld;
                 matBitmapToWorld.SetToIdentity();
 
@@ -1450,8 +1116,6 @@ CD2DSurfaceRenderTarget::DrawPath(
                 if (matBitmapToWorld._12 == 0.0f && matBitmapToWorld._21 == 0.0f &&
                     matBitmapToWorld._11 != 0.0f && matBitmapToWorld._22 != 0.0f)
                 {
-                    logBreadcrumb(L"AXIS_ALIGNED");
-
                     const IFigureData &figure = pPath->GetFigure(0);
                     MilRectF rectF;
                     figure.GetAsWellOrderedRectangle(rectF);
@@ -1459,12 +1123,8 @@ CD2DSurfaceRenderTarget::DrawPath(
                     D2D1_RECT_F d2dRect = D2D1::RectF(
                         rectF.left, rectF.top, rectF.right, rectF.bottom);
 
-                    logBreadcrumb(L"PRE_CACHE");
-
                     ComPtr<ID2D1Bitmap1> pD2DBitmap;
                     D2D_IFC(GetOrCreateCachedBitmap(pTexture, &pD2DBitmap));
-
-                    logBreadcrumb(L"POST_CACHE");
 
                     FLOAT opacity = pFillBrush->GetOpacityFromRealizedBrush();
 
@@ -1493,8 +1153,6 @@ CD2DSurfaceRenderTarget::DrawPath(
                     srcRect.right  = ((d2dRect.right  - tx) / sx) * dipScaleX;
                     srcRect.bottom = ((d2dRect.bottom - ty) / sy) * dipScaleY;
 
-                    logBreadcrumb(L"PRE_DRAWBITMAP");
-
                     m_pD2DContext->DrawBitmap(
                         pD2DBitmap.Get(),
                         &d2dRect,
@@ -1502,8 +1160,6 @@ CD2DSurfaceRenderTarget::DrawPath(
                         D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC,
                         &srcRect,
                         nullptr);
-
-                    logBreadcrumb(L"POST_DRAWBITMAP");
 
                     //
                     // Handle stroke if present.
@@ -1549,48 +1205,6 @@ CD2DSurfaceRenderTarget::DrawPath(
     }
 
     //
-    // DEBUG: Log DrawPath calls with transform info
-    //
-    {
-        static LONG s_drawPathLog = 0;
-        static LONG s_dpTotal = 0;
-        InterlockedIncrement(&s_dpTotal);
-
-        if (s_drawPathLog == 0 && s_dpTotal <= 120)
-        {
-            CMILBrush *pMILFill = pFillBrush ? pFillBrush->GetRealizedBrushNoRef(false) : nullptr;
-            int fillType = pMILFill ? (int)pMILFill->GetType() : -1;
-            bool isRect = pPath->IsAxisAlignedRectangle() && pPath->GetFigureCount() == 1;
-            const CMILMatrix &mat = pContextState->WorldToDevice;
-
-            // For rects, also log the rect bounds
-            FLOAT rx1=0,ry1=0,rx2=0,ry2=0;
-            if (isRect) {
-                MilRectF r; pPath->GetFigure(0).GetAsWellOrderedRectangle(r);
-                rx1=r.left; ry1=r.top; rx2=r.right; ry2=r.bottom;
-            }
-
-            WCHAR ep[MAX_PATH];
-            if (GetTempPathW(MAX_PATH, ep) > 0) {
-                wcscat_s(ep, MAX_PATH, L"wpf_d2d_frame.log");
-                HANDLE h = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                if (h != INVALID_HANDLE_VALUE) {
-                    WCHAR m[768]; int l = swprintf_s(m, ARRAYSIZE(m),
-                        L"DP#%ld r=%d f=%d sz=%ux%u ly=%u mat=[%.2f,%.2f,%.2f,%.2f,%.1f,%.1f] rc=[%.0f,%.0f,%.0f,%.0f]\r\n",
-                        s_dpTotal, (int)isRect, fillType, m_uWidth, m_uHeight, m_layerCount,
-                        mat._11, mat._12, mat._21, mat._22, mat._41, mat._42,
-                        rx1, ry1, rx2, ry2);
-                    DWORD w; WriteFile(h, m, l*sizeof(WCHAR), &w, NULL);
-                    CloseHandle(h);
-                }
-            }
-        }
-
-        if (s_dpTotal > 120 && s_drawPathLog == 0)
-            InterlockedExchange(&s_drawPathLog, 1);
-    }
-
-    //
     // ================================================================
     // Fast path 1: Axis-aligned rectangle
     //
@@ -1610,39 +1224,10 @@ CD2DSurfaceRenderTarget::DrawPath(
 
         if (pFillBrush)
         {
-            LARGE_INTEGER qpcA, qpcB, qpcC, qpcFreqDP;
-            QueryPerformanceFrequency(&qpcFreqDP);
-            QueryPerformanceCounter(&qpcA);
-
             ComPtr<ID2D1Brush> pD2DFillBrush;
             D2D_IFC(ConvertBrush(pFillBrush, pContextState, &pD2DFillBrush));
 
-            QueryPerformanceCounter(&qpcB);
-
             m_pD2DContext->FillRectangle(d2dRect, pD2DFillBrush.Get());
-
-            QueryPerformanceCounter(&qpcC);
-
-            double msConvert = (double)(qpcB.QuadPart - qpcA.QuadPart) * 1000.0 / (double)qpcFreqDP.QuadPart;
-            double msFill    = (double)(qpcC.QuadPart - qpcB.QuadPart) * 1000.0 / (double)qpcFreqDP.QuadPart;
-
-            static LONG s_fillSeq = 0;
-            LONG fSeq = InterlockedIncrement(&s_fillSeq);
-            if (fSeq <= 200 || msConvert > 5.0 || msFill > 5.0)
-            {
-                WCHAR ep[MAX_PATH];
-                if (GetTempPathW(MAX_PATH, ep) > 0) {
-                    wcscat_s(ep, MAX_PATH, L"wpf_d2d_fillrect.log");
-                    HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                    if (hf != INVALID_HANDLE_VALUE) {
-                        WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
-                            L"FR#%ld cvt=%.3f fill=%.3f rect=(%.0f,%.0f,%.0f,%.0f) layers=%u\r\n",
-                            fSeq, msConvert, msFill, d2dRect.left, d2dRect.top, d2dRect.right, d2dRect.bottom, m_layerCount);
-                        DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
-                        CloseHandle(hf);
-                    }
-                }
-            }
         }
 
         if (pStrokeBrush && pPen)
@@ -1830,40 +1415,13 @@ CD2DSurfaceRenderTarget::DrawPath(
         ComPtr<ID2D1Geometry> pGeometry;
         D2D_IFC(ConvertGeometry(pPath, &pGeometry));
 
-        // TEMP: log geometry bounds to see actual coordinate ranges
-        {
-            static LONG s_gb = 0;
-            D2D1_RECT_F gb;
-            if (SUCCEEDED(pGeometry->GetBounds(nullptr, &gb))) {
-                float gw = gb.right - gb.left, gh = gb.bottom - gb.top;
-                LONG gbi = InterlockedIncrement(&s_gb);
-                if (gbi <= 60) {
-                    const CMILMatrix &mat = pContextState->WorldToDevice;
-                    WCHAR ep[MAX_PATH];
-                    if (GetTempPathW(MAX_PATH, ep) > 0) {
-                        wcscat_s(ep, MAX_PATH, L"wpf_d2d_geobounds.log");
-                        HANDLE h = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                        if (h != INVALID_HANDLE_VALUE) {
-                            WCHAR m[512]; int l = swprintf_s(m, ARRAYSIZE(m),
-                                L"GEO#%ld shape=%p bounds=[%.1f,%.1f,%.1f,%.1f] sz=%.1fx%.1f xform=[%.2f,%.2f,%.2f,%.2f,%.1f,%.1f] devSz=%.1fx%.1f\r\n",
-                                gbi, pPath, gb.left, gb.top, gb.right, gb.bottom, gw, gh,
-                                mat._11, mat._12, mat._21, mat._22, mat._41, mat._42,
-                                gw * mat._11, gh * mat._22);
-                            DWORD w; WriteFile(h, m, l*sizeof(WCHAR), &w, NULL);
-                            CloseHandle(h);
-                        }
-                    }
-                }
-            }
-        }
-
         if (pFillBrush)
         {
             ComPtr<ID2D1Brush> pD2DFillBrush;
             D2D_IFC(ConvertBrush(pFillBrush, pContextState, &pD2DFillBrush));
 
             //
-            // TEMP: bypass realization cache — just FillGeometry directly.
+            // TODO: Add geometry realization caching.
             //
             m_pD2DContext->FillGeometry(pGeometry.Get(), pD2DFillBrush.Get());
         }
@@ -1942,6 +1500,111 @@ Cleanup:
 
 //+------------------------------------------------------------------------
 //
+//  Function:  CD2DSurfaceRenderTarget::BuildD2DEffectGraph
+//
+//  Synopsis:  Recursively build a D2D1 effect (+ any chained input
+//             effects) from a CMilEffectDuce resource.  Does NOT draw —
+//             returns the ID2D1Effect* so the caller can compose it.
+//
+//  Parameters:
+//      pEffectResource – the CMilD2DEffectDuce that describes the effect
+//      pSourceBitmap   – the element's rendered content (implicit input)
+//      depth           – recursion guard (max 8 levels)
+//      ppResult        – [out] receives the constructed ID2D1Effect
+//
+//-------------------------------------------------------------------------
+
+HRESULT
+CD2DSurfaceRenderTarget::BuildD2DEffectGraph(
+    __in CMilEffectDuce *pEffectResource,
+    __in ID2D1Bitmap1 *pSourceBitmap,
+    UINT depth,
+    __deref_out ID2D1Effect **ppResult
+    )
+{
+    HRESULT hr = S_OK;
+    ComPtr<ID2D1Effect> pD2DEffect;
+
+    *ppResult = nullptr;
+
+    // Guard against infinite recursion or absurdly deep chains.
+    if (depth > 8)
+    {
+        return E_FAIL;
+    }
+
+    GUID clsid;
+    IFC(D2DEffect_GetClsid(pEffectResource, &clsid));
+
+    IFC(m_pD2DContext->CreateEffect(clsid, &pD2DEffect));
+
+    // --- Set properties ---
+    UINT32 propCount = D2DEffect_GetPropertyCount(pEffectResource);
+    for (UINT32 i = 0; i < propCount; i++)
+    {
+        UINT32 propIndex = 0;
+        const BYTE *pPropData = nullptr;
+        UINT32 propSize = 0;
+
+        if (FAILED(D2DEffect_GetProperty(pEffectResource, i, &propIndex, &pPropData, &propSize)))
+            continue;
+        if (!pPropData || propSize == 0)
+            continue;
+
+        pD2DEffect->SetValue(propIndex, pPropData, propSize);
+    }
+
+    // --- Set inputs ---
+    UINT32 inputCount = D2DEffect_GetInputCount(pEffectResource);
+    bool anyInputSet = false;
+
+    for (UINT32 i = 0; i < inputCount; i++)
+    {
+        UINT32 inputKind = 0;
+        HMIL_RESOURCE hInputResource = 0;
+
+        if (FAILED(D2DEffect_GetInput(pEffectResource, i, &inputKind, &hInputResource)))
+            continue;
+
+        if (inputKind == 1) // Effect input (chaining)
+        {
+            CMilEffectDuce *pInnerEffect = D2DEffect_ResolveInputEffect(pEffectResource, hInputResource);
+            if (pInnerEffect != nullptr)
+            {
+                ComPtr<ID2D1Effect> pInner;
+                hr = BuildD2DEffectGraph(pInnerEffect, pSourceBitmap, depth + 1, &pInner);
+                if (SUCCEEDED(hr) && pInner)
+                {
+                    pD2DEffect->SetInputEffect(i, pInner.Get());
+                    anyInputSet = true;
+                    continue;
+                }
+            }
+            // Fallback to source bitmap
+            pD2DEffect->SetInput(i, pSourceBitmap);
+            anyInputSet = true;
+        }
+        else // Brush input (inputKind == 0)
+        {
+            pD2DEffect->SetInput(i, pSourceBitmap);
+            anyInputSet = true;
+        }
+    }
+
+    // Default: wire source bitmap on input 0
+    if (!anyInputSet)
+    {
+        pD2DEffect->SetInput(0, pSourceBitmap);
+    }
+
+    *ppResult = pD2DEffect.Detach();
+
+Cleanup:
+    RRETURN(hr);
+}
+
+//+------------------------------------------------------------------------
+//
 //  Function:  CD2DSurfaceRenderTarget::ComposeEffect
 //
 //  Synopsis:  Apply a visual effect using D2D1 built-in effects.
@@ -1967,6 +1630,8 @@ CD2DSurfaceRenderTarget::ComposeEffect(
     HRESULT hr = S_OK;
 
     Assert(pContextState);
+
+    m_diag.cComposeEffect++;
 
     if (!IsValid())
     {
@@ -2074,6 +1739,8 @@ CD2DSurfaceRenderTarget::ComposeEffect(
                         pSourceBitmap = pCrossCtxBitmap;
                         hr = S_OK;
                     }
+
+                    m_diag.cComposeFastPath++;
                 }
             }
         }
@@ -2084,6 +1751,8 @@ CD2DSurfaceRenderTarget::ComposeEffect(
 
         if (!pSourceBitmap)
         {
+            m_diag.cComposeSlowPath++;
+
             UINT uBmpWidth = 0, uBmpHeight = 0;
             D2D_IFC(pBitmapSource->GetSize(&uBmpWidth, &uBmpHeight));
 
@@ -2131,6 +1800,7 @@ CD2DSurfaceRenderTarget::ComposeEffect(
 
         if (!pSourceBitmap)
         {
+            m_diag.cComposeNoSource++;
             goto Cleanup;
         }
 
@@ -2155,6 +1825,14 @@ CD2DSurfaceRenderTarget::ComposeEffect(
         //
 
         int effectType = D2DEffect_GetEffectType(pEffect);
+
+        switch (effectType)
+        {
+            case 0: m_diag.cEffectType0++; break;
+            case 1: m_diag.cEffectType1++; break;
+            case 2: m_diag.cEffectType2++; break;
+            case 3: m_diag.cEffectType3++; break;
+        }
 
         if (effectType == 1)
         {
@@ -2261,6 +1939,156 @@ CD2DSurfaceRenderTarget::ComposeEffect(
             pCompositeEffect->SetValue(D2D1_COMPOSITE_PROP_MODE, D2D1_COMPOSITE_MODE_SOURCE_OVER);
 
             m_pD2DContext->DrawImage(pCompositeEffect.Get());
+        }
+        else if (effectType == 4)
+        {
+            //
+            // D2DEffect — generic D2D built-in effect.
+            //
+
+            m_diag.cComposeD2DEffect++;
+
+            // Create the effect from CLSID, set properties and inputs,
+            // then draw the result.
+            //
+
+            GUID clsid;
+            hr = D2DEffect_GetClsid(pEffect, &clsid);
+            if (FAILED(hr)) { m_pD2DContext->DrawImage(pSourceBitmap.Get()); hr = S_OK; goto Cleanup; }
+
+            ComPtr<ID2D1Effect> pD2DEffect;
+            hr = m_pD2DContext->CreateEffect(clsid, &pD2DEffect);
+            if (FAILED(hr))
+            {
+                // Unsupported CLSID — draw source unmodified.
+                m_pD2DContext->DrawImage(pSourceBitmap.Get());
+                hr = S_OK;
+                goto Cleanup;
+            }
+
+            //
+            // Set properties from the property bag.
+            //
+
+            UINT32 propCount = D2DEffect_GetPropertyCount(pEffect);
+            for (UINT32 i = 0; i < propCount; i++)
+            {
+                UINT32 propType = 0;
+                const BYTE *pPropData = nullptr;
+                UINT32 propSize = 0;
+
+                hr = D2DEffect_GetProperty(pEffect, i, &propType, &pPropData, &propSize);
+                if (FAILED(hr))
+                {
+                    continue;
+                }
+                if (pPropData == nullptr || propSize == 0)
+                {
+                    continue;
+                }
+
+                //
+                // propType holds the D2D property INDEX (bridge returns Entry.Index).
+                // ID2D1Effect::SetValue takes raw bytes — no type dispatch needed.
+                //
+
+                UINT32 d2dPropertyIndex = propType;
+
+                HRESULT hrSet = pD2DEffect->SetValue(d2dPropertyIndex, pPropData, propSize);
+                if (SUCCEEDED(hrSet))
+                {
+                    m_diag.cPropSetOk++;
+                    // Track the sigma value for GaussianBlur (property index 0, size 4 = float)
+                    if (d2dPropertyIndex == 0 && propSize == 4)
+                    {
+                        m_diag.lastSigma = *reinterpret_cast<const float*>(pPropData);
+                    }
+                }
+                else
+                {
+                    m_diag.cPropSetFail++;
+                }
+            }
+
+            //
+            // Set inputs.  Brush inputs use the source bitmap (implicit input).
+            // Effect inputs (chaining) recursively build the inner effect graph.
+            //
+
+            UINT32 inputCount = D2DEffect_GetInputCount(pEffect);
+            bool anyInputSet = false;
+
+            for (UINT32 i = 0; i < inputCount; i++)
+            {
+                UINT32 inputKind = 0;
+                HMIL_RESOURCE hInputResource = 0;
+
+                hr = D2DEffect_GetInput(pEffect, i, &inputKind, &hInputResource);
+                if (FAILED(hr))
+                    continue;
+
+                if (inputKind == 1) // Effect input (chaining)
+                {
+                    CMilEffectDuce *pInnerEffect = D2DEffect_ResolveInputEffect(pEffect, hInputResource);
+                    if (pInnerEffect != nullptr)
+                    {
+                        ComPtr<ID2D1Effect> pInner;
+                        hr = BuildD2DEffectGraph(pInnerEffect, pSourceBitmap.Get(), 1, &pInner);
+                        if (SUCCEEDED(hr) && pInner)
+                        {
+                            pD2DEffect->SetInputEffect(i, pInner.Get());
+                            anyInputSet = true;
+                            continue;
+                        }
+                    }
+                    // Fallback to source bitmap
+                    pD2DEffect->SetInput(i, pSourceBitmap.Get());
+                    anyInputSet = true;
+                }
+                else // Brush input
+                {
+                    pD2DEffect->SetInput(i, pSourceBitmap.Get());
+                    anyInputSet = true;
+                }
+            }
+
+            // If no inputs were set, default to source bitmap on input 0
+            if (!anyInputSet)
+            {
+                pD2DEffect->SetInput(0, pSourceBitmap.Get());
+            }
+
+            //
+            // Special handling for CLSID_D2D1Shadow: the shadow effect only
+            // outputs the shadow silhouette.  To produce a useful "drop shadow"
+            // result we composite the shadow behind the original source image.
+            //
+            // Graph: source → Shadow → Composite(input0=shadow, input1=source)
+            //
+
+            if (clsid == CLSID_D2D1Shadow)
+            {
+                ComPtr<ID2D1Effect> pComposite;
+                hr = m_pD2DContext->CreateEffect(CLSID_D2D1Composite, &pComposite);
+                if (SUCCEEDED(hr))
+                {
+                    pComposite->SetInputEffect(0, pD2DEffect.Get());
+                    pComposite->SetInput(1, pSourceBitmap.Get());
+                    pComposite->SetValue(D2D1_COMPOSITE_PROP_MODE,
+                                         D2D1_COMPOSITE_MODE_SOURCE_OVER);
+                    m_pD2DContext->DrawImage(pComposite.Get());
+                }
+                else
+                {
+                    m_pD2DContext->DrawImage(pD2DEffect.Get());
+                    hr = S_OK;
+                }
+            }
+            else
+            {
+                m_pD2DContext->DrawImage(pD2DEffect.Get());
+            }
+            m_diag.cComposeD2DDrawImage++;
         }
         else
         {
@@ -2385,30 +2213,6 @@ CD2DSurfaceRenderTarget::DrawGlyphs(
         MilPoint2F origin = GetGlyphRunOrigin(pars.pGlyphRun);
         D2D1_POINT_2F baselineOrigin = D2D1::Point2F(origin.X, origin.Y);
 
-        //
-        // DEBUG: Log text draws with transform and origin
-        //
-        {
-            static LONG s_glyphLog = 0;
-            LONG gl = InterlockedIncrement(&s_glyphLog);
-            if (gl <= 15) {
-                const CMILMatrix &mat = pars.pContextState->WorldToDevice;
-                WCHAR ep[MAX_PATH];
-                if (GetTempPathW(MAX_PATH, ep) > 0) {
-                    wcscat_s(ep, MAX_PATH, L"wpf_d2d_frame.log");
-                    HANDLE h = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                    if (h != INVALID_HANDLE_VALUE) {
-                        WCHAR m[512]; int l = swprintf_s(m, ARRAYSIZE(m),
-                            L"GLYPH#%ld origin=[%.1f,%.1f] mat=[%.2f,%.2f,%.2f,%.2f,%.1f,%.1f] sz=%ux%u ly=%u\r\n",
-                            gl, origin.X, origin.Y, mat._11, mat._12, mat._21, mat._22, mat._41, mat._42,
-                            m_uWidth, m_uHeight, m_layerCount);
-                        DWORD w; WriteFile(h, m, l*sizeof(WCHAR), &w, NULL);
-                        CloseHandle(h);
-                    }
-                }
-            }
-        }
-
         DWRITE_MEASURING_MODE measuringMode = IsGlyphRunDisplayMeasured(pars.pGlyphRun)
             ? DWRITE_MEASURING_MODE_GDI_CLASSIC
             : DWRITE_MEASURING_MODE_NATURAL;
@@ -2495,28 +2299,6 @@ CD2DSurfaceRenderTarget::BeginLayer(
 {
     HRESULT hr = S_OK;
 
-    // DIAGNOSTIC: log all BeginLayer calls with timing
-    {
-        static LONG s_blCount = 0;
-        LONG bl = InterlockedIncrement(&s_blCount);
-        LARGE_INTEGER blNow;
-        QueryPerformanceCounter(&blNow);
-        WCHAR ep[MAX_PATH];
-        if (GetTempPathW(MAX_PATH, ep) > 0) {
-            wcscat_s(ep, MAX_PATH, L"wpf_d2d_freeze.log");
-            HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-            if (hf != INVALID_HANDLE_VALUE) {
-                WCHAR m[512]; int l = swprintf_s(m, ARRAYSIZE(m),
-                    L"BL#%ld t=%lld ly=%u sz=%ux%u alpha=%.2f mask=%p amask=%p bounds=[%.0f,%.0f,%.0f,%.0f]\r\n",
-                    bl, blNow.QuadPart, m_layerCount, m_uWidth, m_uHeight, flAlphaScale,
-                    pGeometricMask, pAlphaMask,
-                    LayerBounds.left, LayerBounds.top, LayerBounds.right, LayerBounds.bottom);
-                DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
-                CloseHandle(hf);
-            }
-        }
-    }
-
     if (!IsValid())
     {
         goto Cleanup;
@@ -2526,29 +2308,6 @@ CD2DSurfaceRenderTarget::BeginLayer(
     {
         hr = E_FAIL;
         goto Cleanup;
-    }
-
-    //
-    // DEBUG: Log BeginLayer bounds
-    //
-    {
-        static LONG s_layerLog = 0;
-        LONG ll = InterlockedIncrement(&s_layerLog);
-        if (ll <= 20 && m_uWidth >= 1024) {
-            WCHAR ep[MAX_PATH];
-            if (GetTempPathW(MAX_PATH, ep) > 0) {
-                wcscat_s(ep, MAX_PATH, L"wpf_d2d_frame.log");
-                HANDLE h = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                if (h != INVALID_HANDLE_VALUE) {
-                    WCHAR m[512]; int l = swprintf_s(m, ARRAYSIZE(m),
-                        L"LAYER#%ld push ly=%u bounds=[%.1f,%.1f,%.1f,%.1f] alpha=%.2f mask=%d sz=%ux%u\r\n",
-                        ll, m_layerCount, LayerBounds.left, LayerBounds.top, LayerBounds.right, LayerBounds.bottom,
-                        flAlphaScale, (int)(pGeometricMask != nullptr), m_uWidth, m_uHeight);
-                    DWORD w; WriteFile(h, m, l*sizeof(WCHAR), &w, NULL);
-                    CloseHandle(h);
-                }
-            }
-        }
     }
 
     //
@@ -2734,27 +2493,6 @@ STDMETHODIMP
 CD2DSurfaceRenderTarget::EndLayer()
 {
     HRESULT hr = S_OK;
-
-    // DIAGNOSTIC: log all EndLayer calls
-    {
-        static LONG s_elCount = 0;
-        LONG el = InterlockedIncrement(&s_elCount);
-        LARGE_INTEGER elNow;
-        QueryPerformanceCounter(&elNow);
-        WCHAR ep[MAX_PATH];
-        if (GetTempPathW(MAX_PATH, ep) > 0) {
-            wcscat_s(ep, MAX_PATH, L"wpf_d2d_freeze.log");
-            HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-            if (hf != INVALID_HANDLE_VALUE) {
-                bool isFullLayer = (m_layerCount > 0) ? m_layerTypeStack[m_layerCount - 1] : false;
-                WCHAR m[256]; int l = swprintf_s(m, ARRAYSIZE(m),
-                    L"EL#%ld t=%lld ly=%u full=%d sz=%ux%u\r\n",
-                    el, elNow.QuadPart, m_layerCount, (int)isFullLayer, m_uWidth, m_uHeight);
-                DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
-                CloseHandle(hf);
-            }
-        }
-    }
 
     if (!IsValid())
     {
@@ -3146,13 +2884,6 @@ CD2DSurfaceRenderTarget::EnsureBrushRealization(
 
         // DIAGNOSTIC: log before/after and time EnsureRealization
         {
-            static LONG s_erDiag = 0;
-            LONG d = InterlockedIncrement(&s_erDiag);
-
-            LARGE_INTEGER t0, t1, freq;
-            QueryPerformanceCounter(&t0);
-            QueryPerformanceFrequency(&freq);
-
             hr = pBrushRealizer->EnsureRealization(
                 CMILResourceCache::SwRealizationCacheIndex,
                 m_associatedDisplay,
@@ -3160,31 +2891,6 @@ CD2DSurfaceRenderTarget::EnsureBrushRealization(
                 pContextState,
                 &swRTCreator
                 );
-
-            QueryPerformanceCounter(&t1);
-
-            double ms = (double)(t1.QuadPart - t0.QuadPart) * 1000.0 / (double)freq.QuadPart;
-
-            CMILBrush *pPost = pBrushRealizer->GetRealizedBrushNoRef(false);
-            int postType = pPost ? (int)pPost->GetType() : -1;
-
-            // Log: BrushBitmap type (always), slow calls >1ms (always), or first 50
-            if (postType == BrushBitmap || ms > 1.0 || d <= 50)
-            {
-                WCHAR ep[MAX_PATH];
-                if (GetTempPathW(MAX_PATH, ep) > 0) {
-                    wcscat_s(ep, MAX_PATH, L"wpf_d2d_realize.log");
-                    HANDLE hf = CreateFileW(ep, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                    if (hf != INVALID_HANDLE_VALUE) {
-                        WCHAR m[512]; int l = swprintf_s(m, ARRAYSIZE(m),
-                            L"ER#%ld hr=%08lX type=%d ms=%.3f this=%p sz=%ux%u layers=%u\r\n",
-                            d, (unsigned long)hr, postType, ms,
-                            this, m_uWidth, m_uHeight, m_layerCount);
-                        DWORD dw; WriteFile(hf, m, l*sizeof(WCHAR), &dw, NULL);
-                        CloseHandle(hf);
-                    }
-                }
-            }
 
             IFC(hr);
         }
@@ -4126,6 +3832,8 @@ CD2DSurfaceRenderTarget::WriteDiagLog()
                     L"  GeoCacheHit/frame: %.1f  Miss/frame: %.1f\r\n"
                     L"BeginLayer/frame: %.1f  (AxisClip: %.1f  FullLayer: %.1f)\r\n"
                     L"EndLayer/frame: %.1f\r\n"
+                    L"ComposeEffect/frame: %.1f  (D2DEffect: %.1f  DrawImage: %.1f)\r\n"
+                    L"  FastPath/frame: %.1f  SlowPath/frame: %.1f  NoSource/frame: %.1f\r\n"
                     L"\r\n"
                     L"--- Raw Counts (last %u frames) ---\r\n"
                     L"DrawPath: %u\r\n"
@@ -4135,9 +3843,10 @@ CD2DSurfaceRenderTarget::WriteDiagLog()
                     L"  GeoCacheHit: %u  Miss: %u\r\n"
                     L"BeginLayer: %u  (AxisClip: %u  FullLayer: %u)\r\n"
                     L"EndLayer: %u\r\n"
-                    L"\r\n"
-                    L"--- Context State ---\r\n"
-                    L"AA Mode: %d  (0=PER_PRIMITIVE, 1=ALIASED)\r\n"
+                    L"ComposeEffect: %u  (D2DEffect: %u  DrawImage: %u)\r\n"
+                    L"  FastPath: %u  SlowPath: %u  NoSource: %u\r\n"
+                    L"  PropSetOk: %u  PropSetFail: %u  LastSigma: %.3f\r\n"
+                    L"  EffectTypes: T0=%u T1(blur)=%u T2(shadow)=%u T3(shader)=%u\r\n"
                     L"Unit Mode: %d  (0=DIPS, 1=PIXELS)\r\n"
                     L"Context DPI: %.1f\r\n"
                     L"MT Optimizations: ENABLED\r\n",
@@ -4156,6 +3865,12 @@ CD2DSurfaceRenderTarget::WriteDiagLog()
                     (float)m_diag.cAxisAlignedClip / frames,
                     (float)m_diag.cFullLayer / frames,
                     (float)m_diag.cEndLayer / frames,
+                    (float)m_diag.cComposeEffect / frames,
+                    (float)m_diag.cComposeD2DEffect / frames,
+                    (float)m_diag.cComposeD2DDrawImage / frames,
+                    (float)m_diag.cComposeFastPath / frames,
+                    (float)m_diag.cComposeSlowPath / frames,
+                    (float)m_diag.cComposeNoSource / frames,
                     frames,
                     m_diag.cDrawPath,
                     m_diag.cFastRect,
@@ -4168,7 +3883,19 @@ CD2DSurfaceRenderTarget::WriteDiagLog()
                     m_diag.cAxisAlignedClip,
                     m_diag.cFullLayer,
                     m_diag.cEndLayer,
-                    m_pD2DContext ? (int)m_pD2DContext->GetAntialiasMode() : -1,
+                    m_diag.cComposeEffect,
+                    m_diag.cComposeD2DEffect,
+                    m_diag.cComposeD2DDrawImage,
+                    m_diag.cComposeFastPath,
+                    m_diag.cComposeSlowPath,
+                    m_diag.cComposeNoSource,
+                    m_diag.cPropSetOk,
+                    m_diag.cPropSetFail,
+                    m_diag.lastSigma,
+                    m_diag.cEffectType0,
+                    m_diag.cEffectType1,
+                    m_diag.cEffectType2,
+                    m_diag.cEffectType3,
                     m_pD2DContext ? (int)m_pD2DContext->GetUnitMode() : -1,
                     [&]() -> float {
                         float dpiX = 0, dpiY = 0;

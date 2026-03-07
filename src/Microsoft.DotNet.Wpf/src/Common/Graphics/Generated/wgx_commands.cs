@@ -1107,5 +1107,17 @@ namespace System.Windows.Media.Composition
         [FieldOffset(20)] internal BOOL SnapsToDevicePixels;
         [FieldOffset(24)] internal BOOL EnableClearType;
         };
+        [StructLayout(LayoutKind.Explicit, Pack=1, Size=44)]
+        internal struct MILCMD_D2DEFFECT
+        {
+        [FieldOffset(0)] internal MILCMD Type;
+        [FieldOffset(4)] internal DUCE.ResourceHandle Handle;
+        [FieldOffset(8)] internal Guid EffectClsid;
+        [FieldOffset(24)] internal UInt32 PropertyCount;
+        [FieldOffset(28)] internal UInt32 PropertyDataSize;
+        [FieldOffset(32)] internal UInt32 InputCount;
+        [FieldOffset(36)] internal UInt32 InputDataSize;
+        [FieldOffset(40)] internal float Padding;
+        };
     };
 }

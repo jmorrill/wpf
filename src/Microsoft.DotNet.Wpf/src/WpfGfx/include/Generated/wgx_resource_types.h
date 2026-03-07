@@ -116,6 +116,7 @@ enum MIL_RESOURCE_TYPE
     /* 0x5f */ TYPE_BITMAPSOURCE = 95,
     /* 0x60 */ TYPE_DOUBLEBUFFEREDBITMAP = 96,
     /* 0x61 */ TYPE_D3DIMAGE = 97,
-    /* 0x62 */ TYPE_LAST = 98,
+    /* 0x62 */ TYPE_D2DEFFECT = 98,
+    /* 0x63 */ TYPE_LAST = 99,
     /* ---- */ TYPE_FORCE_DWORD = 0xFFFFFFFF
 };

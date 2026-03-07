@@ -68,6 +68,7 @@
     <ClCompile Include="camera.cpp" />
     <ClCompile Include="combinedgeometry.cpp" />
     <ClCompile Include="currentvalue.cpp" />
+    <ClCompile Include="D2DEffect.cpp" />
     <ClCompile Include="d3dimage.cpp" />
     <ClCompile Include="dashStyle.cpp" />
     <ClCompile Include="DeviceAlignedIntermediateRealizer.cpp" />

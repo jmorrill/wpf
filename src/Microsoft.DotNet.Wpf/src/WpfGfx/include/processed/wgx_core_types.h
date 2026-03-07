@@ -1792,7 +1792,8 @@ enum MIL_RESOURCE_TYPE
     /* 0x5f */ TYPE_BITMAPSOURCE = 95,
     /* 0x60 */ TYPE_DOUBLEBUFFEREDBITMAP = 96,
     /* 0x61 */ TYPE_D3DIMAGE = 97,
-    /* 0x62 */ TYPE_LAST = 98,
+    /* 0x62 */ TYPE_D2DEFFECT = 98,
+    /* 0x63 */ TYPE_LAST = 99,
     /* ---- */ TYPE_FORCE_DWORD = 0xFFFFFFFF
 };
 
@@ -1966,6 +1967,7 @@ typedef enum
     /* 0x8b */ MilCmdDrawingGroup                            = 0x8b,
     /* 0x8c */ MilCmdGuidelineSet                            = 0x8c,
     /* 0x8d */ MilCmdBitmapCache                             = 0x8d,
+    /* 0x8e */ MilCmdD2DEffect                              = 0x8e,
 
 #if DBG
     //
@@ -1978,7 +1980,7 @@ typedef enum
     // debug/retail and managed/unmanaged code.
     //
 
-    /* 0x8e */ MilCmdValidateStructureOrder                  = 0x8e
+    /* 0x8f */ MilCmdValidateStructureOrder                  = 0x8f
 #endif
 } MILCMD;
 
@@ -2761,6 +2763,18 @@ struct MILCMD_SHADEREFFECT
     UINT32 DependencyPropertyBoolValuesSize;
     UINT32 ShaderSamplerRegistrationInfoSize;
     UINT32 DependencyPropertySamplerValuesSize;
+};
+
+struct MILCMD_D2DEFFECT
+{
+    MILCMD Type;
+    HMIL_RESOURCE Handle;
+    GUID EffectClsid;
+    UINT32 PropertyCount;
+    UINT32 PropertyDataSize;
+    UINT32 InputCount;
+    UINT32 InputDataSize;
+    FLOAT Padding;
 };
 
 struct MILCMD_DRAWINGIMAGE

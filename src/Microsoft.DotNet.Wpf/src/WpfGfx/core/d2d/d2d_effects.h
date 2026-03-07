@@ -23,6 +23,9 @@ class CMilEffectDuce;
 class CMilBlurEffectDuce;
 class CMilDropShadowEffectDuce;
 class CMilShaderEffectDuce;
+class CMilD2DEffectDuce;
+class CMilSlaveHandleTable;
+class CMilSlaveResource;
 
 //+------------------------------------------------------------------------
 //
@@ -162,3 +165,19 @@ void   D2DEffect_GetDropShadowColor(
     __out float *b,
     __out float *a
 );
+
+//
+// D2DEffect (generic D2D built-in effect) bridge functions
+// Returns: 0 = Unknown, 1 = Blur, 2 = DropShadow, 3 = Shader, 4 = D2DEffect
+//
+
+bool    D2DEffect_IsD2DEffect(__in CMilEffectDuce *pEffect);
+HRESULT D2DEffect_GetClsid(__in CMilEffectDuce *pEffect, __out GUID *pClsid);
+UINT32  D2DEffect_GetPropertyCount(__in CMilEffectDuce *pEffect);
+HRESULT D2DEffect_GetProperty(__in CMilEffectDuce *pEffect, UINT32 index,
+                              __out UINT32 *pType, __out const BYTE **ppData, __out UINT32 *pSize);
+UINT32  D2DEffect_GetInputCount(__in CMilEffectDuce *pEffect);
+HRESULT D2DEffect_GetInput(__in CMilEffectDuce *pEffect, UINT32 index,
+                           __out UINT32 *pKind, __out HMIL_RESOURCE *phResource);
+CMilSlaveHandleTable* D2DEffect_GetHandleTable(__in CMilEffectDuce *pEffect);
+CMilEffectDuce* D2DEffect_ResolveInputEffect(__in CMilEffectDuce *pEffect, HMIL_RESOURCE hResource);

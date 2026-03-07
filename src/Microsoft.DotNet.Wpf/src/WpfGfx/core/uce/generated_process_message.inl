@@ -2717,6 +2717,37 @@ switch (nCmdType)
     }
     break;
 
+    case MilCmdD2DEffect:
+    {
+        #ifdef DEBUG
+        if (cbSize < sizeof(MILCMD_D2DEFFECT))
+        {
+            IFC(WGXERR_UCE_MALFORMEDPACKET);
+        }
+        #endif
+
+        const MILCMD_D2DEFFECT* pCmd = 
+            reinterpret_cast<const MILCMD_D2DEFFECT*>(pcvData);
+
+        LPCVOID pPayload = reinterpret_cast<LPCVOID>(pCmd + 1);
+        UINT cbPayload = cbSize - sizeof(MILCMD_D2DEFFECT);
+
+        CMilD2DEffectDuce* pResource =
+            static_cast<CMilD2DEffectDuce*>(pHandleTable->GetResource(
+                pCmd->Handle,
+                TYPE_D2DEFFECT
+                ));
+
+        if (pResource == NULL)
+        {
+            RIP("Invalid resource handle.");
+            IFC(WGXERR_UCE_MALFORMEDPACKET);
+        }
+
+        IFC(pResource->ProcessUpdate(pHandleTable, pCmd, pPayload, cbPayload));
+    }
+    break;
+
     case MilCmdShaderEffect:
     {
         #ifdef DEBUG

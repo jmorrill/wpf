@@ -137,6 +137,10 @@ HRESULT CResourceFactory::Create(
         pResource = new CMilShaderEffectDuce(pComposition);
         break;
 
+    case TYPE_D2DEFFECT:
+        pResource = new CMilD2DEffectDuce(pComposition);
+        break;
+
     case TYPE_VISUAL:
         pResource = new CMilVisual(pComposition);
         break;
